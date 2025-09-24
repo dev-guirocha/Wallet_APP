@@ -1,8 +1,29 @@
 {
-  "ios": {
-    "bundleIdentifier": "com.dev.guirocha.wallet-app"
-  },
-  "android": {
-    "package": "com.dev.guirocha.walletapp"
+  "expo": {
+    "name": "WalletAPP",
+    "slug": "wallet-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/iamges/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#E4E2DD"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dev.guirocha.wallet-app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#E4E2DD"
+      },
+      "package": "com.dev.guirocha.walletapp"
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    }
   }
 }
