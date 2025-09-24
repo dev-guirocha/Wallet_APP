@@ -1,5 +1,8 @@
 {
   "ios": {
     "bundleIdentifier": "com.dev.guirocha.wallet-app"
+  },
+  "android": {
+    "package": "com.dev.guirocha.walletapp"
   }
 }
