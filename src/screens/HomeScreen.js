@@ -20,13 +20,10 @@ const HomeScreen = ({
   navigation,
   clients,
   activeMonth,
-  adjustments = [],
-  scheduleOverrides = {},
   onToggleClientPayment,
   planTier = 'free',
   clientLimit = 3,
 }) => {
-  const [fabMenuVisible, setFabMenuVisible] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
 
   const monthLabel = useMemo(() => getReadableMonth(activeMonth), [activeMonth]);
@@ -46,24 +43,18 @@ const HomeScreen = ({
       { expected: 0, received: 0, pending: 0 },
     );
 
-    const monthAdjustments = adjustments.filter((adjustment) => adjustment.month === activeMonth);
-    const totalOutflows = monthAdjustments.reduce((sum, adjustment) => sum + adjustment.amount, 0);
-    const balance = totals.received - totalOutflows;
     const progress = totals.expected > 0 ? totals.received / totals.expected : 0;
 
     return {
       ...totals,
-      outflows: totalOutflows,
-      balance,
       progress,
-      adjustments: monthAdjustments,
     };
-  }, [clients, adjustments, activeMonth]);
+  }, [clients]);
 
   const todayAppointments = useMemo(() => {
     const today = new Date();
-    return getAppointmentsForDate({ date: today, clients, overrides: scheduleOverrides });
-  }, [clients, scheduleOverrides]);
+    return getAppointmentsForDate({ date: today, clients });
+  }, [clients]);
 
   const upcomingPayments = useMemo(() => {
     const now = new Date();
@@ -94,7 +85,6 @@ const HomeScreen = ({
   }, [clients]);
 
   const handleOpenPaymentMenu = (client) => {
-    setFabMenuVisible(false);
     setSelectedPayment(client);
   };
 
@@ -115,11 +105,6 @@ const HomeScreen = ({
     return date.charAt(0).toUpperCase() + date.slice(1);
   };
 
-  const navigateAndCloseMenu = (screen, params) => {
-    setFabMenuVisible(false);
-    navigation.navigate(screen, params);
-  };
-
   const progressWidth = `${Math.max(0, Math.min(100, Math.round(financialData.progress * 100)))}%`;
 
   return (
@@ -129,17 +114,14 @@ const HomeScreen = ({
           <Text style={styles.greeting}>Bom dia, Guilherme</Text>
           <Text style={styles.date}>{getFormattedDate()}</Text>
           {planTier === 'free' ? (
-            <TouchableOpacity
-              style={styles.homeLimitBanner}
-              onPress={() => navigation.navigate('Subscription', { planTier, clientCount: clients.length, clientLimit })}
-            >
+            <View style={styles.homeLimitBanner}>
               <Text style={styles.homeLimitText}>
                 {`Plano gratuito: ${clients.length}/${clientLimit} clientes`}
               </Text>
               {clients.length >= clientLimit ? (
                 <Text style={styles.homeLimitCTA}>Passe para o Pro para liberar mais cadastros</Text>
               ) : null}
-            </TouchableOpacity>
+            </View>
           ) : (
             <View style={[styles.homeLimitBanner, styles.homeLimitBannerPro]}>
               <Text style={styles.homeLimitTextPro}>Plano Pro ativo</Text>
@@ -147,7 +129,7 @@ const HomeScreen = ({
           )}
         </View>
 
-        <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={() => navigation.navigate('Gráficos')}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>VISÃO DO MÊS ({monthLabel})</Text>
           <Text style={styles.receivedValue}>R$ {formatCurrency(financialData.received)}</Text>
           <Text style={styles.receivedLabel}>Recebido até o momento</Text>
@@ -159,11 +141,7 @@ const HomeScreen = ({
             <Text style={styles.progressText}>Total previsto: R$ {formatCurrency(financialData.expected)}</Text>
             <Text style={styles.progressText}>Pendente: R$ {formatCurrency(financialData.pending)}</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryText}>Saldo disponível: R$ {formatCurrency(financialData.balance)}</Text>
-            <Text style={styles.summaryText}>Saídas: - R$ {formatCurrency(financialData.outflows)}</Text>
-          </View>
-        </TouchableOpacity>
+        </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>PRÓXIMOS PAGAMENTOS</Text>
@@ -210,59 +188,10 @@ const HomeScreen = ({
           )}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>ÚLTIMAS SAÍDAS</Text>
-          {financialData.adjustments.length > 0 ? (
-            financialData.adjustments.slice(0, 3).map((adjustment) => (
-              <View key={adjustment.id} style={styles.adjustmentItem}>
-                <View>
-                  <Text style={styles.adjustmentValue}>- R$ {formatCurrency(adjustment.amount)}</Text>
-                  <Text style={styles.adjustmentNote}>
-                    {adjustment.note || (adjustment.type === 'withdrawal' ? 'Retirada' : 'Despesa')}
-                  </Text>
-                </View>
-                <Text style={styles.adjustmentDate}>
-                  {new Date(adjustment.createdAt).toLocaleDateString('pt-BR', {
-                    day: '2-digit',
-                    month: 'short',
-                  })}
-                </Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.noAppointmentsText}>Nenhuma saída registrada neste mês.</Text>
-          )}
-        </View>
       </ScrollView>
 
-      {fabMenuVisible && (
-        <View style={styles.fabMenu}>
-          <TouchableOpacity
-            style={styles.fabMenuItem}
-            onPress={() => navigateAndCloseMenu('EditAppointment')}
-          >
-            <Text style={styles.fabMenuText}>Mudar compromisso</Text>
-            <Icon name="edit-3" size={20} color={COLORS.background} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.fabMenuItem}
-            onPress={() => navigateAndCloseMenu('RecordAdjustment')}
-          >
-            <Text style={styles.fabMenuText}>Registrar saída</Text>
-            <Icon name="trending-down" size={20} color={COLORS.background} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.fabMenuItem}
-            onPress={() => navigateAndCloseMenu('AddClient', { clientTerm })}
-          >
-            <Text style={styles.fabMenuText}>Novo {clientTerm}</Text>
-            <Icon name="user-plus" size={20} color={COLORS.background} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <TouchableOpacity style={styles.fab} onPress={() => setFabMenuVisible(!fabMenuVisible)}>
-        <Icon name={fabMenuVisible ? 'x' : 'plus'} size={28} color={COLORS.background} />
+      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddClient', { clientTerm })}>
+        <Icon name="plus" size={28} color={COLORS.background} />
       </TouchableOpacity>
 
       <Modal
@@ -344,8 +273,6 @@ const styles = StyleSheet.create({
   progressBar: { height: '100%', backgroundColor: COLORS.text, borderRadius: 4 },
   progressLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   progressText: { fontSize: 12, color: COLORS.accent },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 },
-  summaryText: { fontSize: 13, color: COLORS.accent, fontWeight: '600' },
   section: { marginBottom: 30 },
   sectionTitle: { fontSize: 14, fontWeight: '600', color: COLORS.accent, marginBottom: 15, marginLeft: 30, textTransform: 'uppercase' },
   pill: {
@@ -366,16 +293,6 @@ const styles = StyleSheet.create({
   appointmentLocation: { fontSize: 14, color: COLORS.accent },
   appointmentNote: { fontSize: 12, color: COLORS.placeholder, marginTop: 4 },
   noAppointmentsText: { color: COLORS.placeholder, textAlign: 'center', paddingHorizontal: 30 },
-  adjustmentItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-  },
-  adjustmentValue: { fontSize: 16, fontWeight: '600', color: '#C70039' },
-  adjustmentNote: { fontSize: 13, color: COLORS.accent, marginTop: 2 },
-  adjustmentDate: { fontSize: 12, color: COLORS.placeholder },
   fab: {
     position: 'absolute',
     bottom: 30,
@@ -391,19 +308,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { height: 2, width: 0 },
   },
-  fabMenu: {
-    position: 'absolute',
-    bottom: 100,
-    right: 30,
-    backgroundColor: COLORS.text,
-    borderRadius: 15,
-    elevation: 5,
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { height: 2, width: 0 },
-  },
-  fabMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 20 },
-  fabMenuText: { color: COLORS.background, fontSize: 16, fontWeight: '600', marginRight: 10 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',

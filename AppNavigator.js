@@ -3,7 +3,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 
 import HomeScreen from './src/screens/HomeScreen';
 import AgendaScreen from './src/screens/AgendaScreen';
@@ -18,7 +18,14 @@ const COLORS = {
   placeholder: 'rgba(30, 30, 30, 0.5)',
 };
 
-const TabNavigator = ({ clientTerm, clients }) => {
+const TabNavigator = ({
+  clientTerm,
+  clients,
+  planTier,
+  clientLimit,
+  activeMonth,
+  onToggleClientPayment,
+}) => {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -48,7 +55,17 @@ const TabNavigator = ({ clientTerm, clients }) => {
       })}
     >
       <Tab.Screen name="Início">
-        {props => <HomeScreen {...props} clientTerm={clientTerm} clients={clients} />}
+        {props => (
+          <HomeScreen
+            {...props}
+            clientTerm={clientTerm}
+            clients={clients}
+            planTier={planTier}
+            clientLimit={clientLimit}
+            activeMonth={activeMonth}
+            onToggleClientPayment={onToggleClientPayment}
+          />
+        )}
       </Tab.Screen>
 
       {/* ======================================================= */}
@@ -67,18 +84,46 @@ const TabNavigator = ({ clientTerm, clients }) => {
   );
 };
 
-const AppNavigator = ({ clientTerm, clients, onAddClient }) => {
+const AppNavigator = ({
+  clientTerm,
+  clients,
+  onAddClient,
+  onUpdateClient,
+  planTier,
+  clientLimit,
+  activeMonth,
+  onToggleClientPayment,
+}) => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs">
-        {props => <TabNavigator {...props} clientTerm={clientTerm} clients={clients} />}
+        {props => (
+          <TabNavigator
+            {...props}
+            clientTerm={clientTerm}
+            clients={clients}
+            planTier={planTier}
+            clientLimit={clientLimit}
+            activeMonth={activeMonth}
+            onToggleClientPayment={onToggleClientPayment}
+          />
+        )}
       </Stack.Screen>
       <Stack.Screen 
         name="AddClient"
         options={{ presentation: 'modal' }}
       >
-         {/* A tela de adicionar recebe a função onAddClient */}
-        {props => <AddClientScreen {...props} onAddClient={onAddClient} />}
+        {props => (
+          <AddClientScreen
+            {...props}
+            onAddClient={onAddClient}
+            onUpdateClient={onUpdateClient}
+            defaultClientTerm={clientTerm}
+            planTier={planTier}
+            clientLimit={clientLimit}
+            clientCount={clients.length}
+          />
+        )}
       </Stack.Screen>
     </Stack.Navigator>
   );

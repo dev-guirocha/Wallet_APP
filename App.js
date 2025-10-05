@@ -1,28 +1,17 @@
 // App.js
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
-import * as Notifications from 'expo-notifications';
-
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import ProfessionScreen from './src/screens/ProfessionScreen';
 import AppNavigator from './AppNavigator';
-import SubscriptionCheckoutScreen from './src/screens/SubscriptionCheckoutScreen';
 import { getMonthKey } from './src/utils/dateUtils';
-import {
-  configureNotificationHandling,
-  requestNotificationPermissionAsync,
-  rescheduleAllNotificationsAsync,
-  shouldAskForNotificationPermission,
-} from './src/utils/notifications';
 import { loadAppData, saveAppData } from './src/utils/storage';
-
-configureNotificationHandling();
 
 const INITIAL_MONTH_KEY = getMonthKey();
 
@@ -36,13 +25,7 @@ const App = () => {
   const [planTier, setPlanTier] = useState('free');
   const [clients, setClients] = useState(INITIAL_CLIENTS);
   const [activeMonth, setActiveMonth] = useState(INITIAL_MONTH_KEY);
-  const [financialAdjustments, setFinancialAdjustments] = useState([]);
-  const [scheduleOverrides, setScheduleOverrides] = useState({});
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [canAskNotifications, setCanAskNotifications] = useState(true);
-  const [notificationRegistry, setNotificationRegistry] = useState({});
   const [isHydrated, setIsHydrated] = useState(false);
-  const [shouldShowCheckoutAfterAuth, setShouldShowCheckoutAfterAuth] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [hasAuthenticated, setHasAuthenticated] = useState(false);
 
@@ -63,18 +46,6 @@ const App = () => {
         if (Array.isArray(saved.clients)) {
           setClients(saved.clients);
         }
-        if (Array.isArray(saved.adjustments)) {
-          setFinancialAdjustments(saved.adjustments);
-        }
-        if (saved.scheduleOverrides) {
-          setScheduleOverrides(saved.scheduleOverrides);
-        }
-        if (typeof saved.notificationsEnabled === 'boolean') {
-          setNotificationsEnabled(saved.notificationsEnabled);
-        }
-        if (saved.notificationRegistry) {
-          setNotificationRegistry(saved.notificationRegistry);
-        }
         if (saved.planTier) {
           setPlanTier(saved.planTier);
         }
@@ -91,10 +62,6 @@ const App = () => {
         }
       }
 
-      const settings = await Notifications.getPermissionsAsync();
-      const granted = settings?.granted || settings?.status === 'granted';
-      setNotificationsEnabled(granted);
-      setCanAskNotifications(settings?.canAskAgain && !granted);
       setAppState(nextAppState);
       setIsHydrated(true);
     };
@@ -147,7 +114,6 @@ const App = () => {
           paymentUpdatedAt: paymentEntry.updatedAt,
           status: isPaid ? 'Pago' : dueDayLabel,
           statusColor: isPaid ? '#5CB85C' : '#F0AD4E',
-          notificationsOptIn: client.notificationsOptIn !== false,
         };
       }),
     [clients, activeMonth],
@@ -176,27 +142,10 @@ const App = () => {
           updatedAt: null,
         },
       },
-      notificationsOptIn:
-        newClientData.notificationsOptIn !== undefined
-          ? newClientData.notificationsOptIn
-          : true,
     };
 
     setClients((prevClients) => [...prevClients, newClient]);
     return true;
-  };
-
-  const handleUpgradePlan = () => {
-    setPlanTier('premium');
-  };
-
-  const handleDowngradePlan = () => {
-    setPlanTier('free');
-  };
-
-  const handlePlanSelection = (tier) => {
-    const wantsPremium = tier === 'premium';
-    setShouldShowCheckoutAfterAuth(wantsPremium && planTier !== 'premium');
   };
 
   const handleOnboardingComplete = () => {
@@ -206,7 +155,7 @@ const App = () => {
 
   const handleAuthSuccess = () => {
     setHasAuthenticated(true);
-    setAppState(shouldShowCheckoutAfterAuth ? 'subscriptionCheckout' : 'profession');
+    setAppState('profession');
   };
 
   const handleUpdateClient = (clientId, updatedClientData) => {
@@ -230,10 +179,6 @@ const App = () => {
             updatedClientData.dueDay !== undefined
               ? String(updatedClientData.dueDay || '').trim()
               : client.dueDay,
-          notificationsOptIn:
-            updatedClientData.notificationsOptIn !== undefined
-              ? updatedClientData.notificationsOptIn
-              : client.notificationsOptIn,
         };
       })
     );
@@ -269,130 +214,16 @@ const App = () => {
     );
   };
 
-  const handleRecordAdjustment = ({ amount, type, note }) => {
-    const numericAmount = Number(amount);
-    if (!numericAmount || Number.isNaN(numericAmount) || numericAmount <= 0) {
-      return;
-    }
-
-    const newAdjustment = {
-      id: uuidv4(),
-      amount: numericAmount,
-      type,
-      note: note?.trim() || '',
-      month: activeMonth,
-      createdAt: new Date().toISOString(),
-    };
-
-    setFinancialAdjustments((prev) => [newAdjustment, ...prev]);
-  };
-
-  const handleSaveOverride = (dateKey, clientId, override) => {
-    setScheduleOverrides((prev) => {
-      const existingForDate = prev[dateKey] ?? {};
-      const updatedForDate = { ...existingForDate };
-
-      if (!override || override.action === 'clear') {
-        delete updatedForDate[clientId];
-      } else {
-        updatedForDate[clientId] = override;
-      }
-
-      const nextOverrides = { ...prev };
-      if (Object.keys(updatedForDate).length === 0) {
-        delete nextOverrides[dateKey];
-      } else {
-        nextOverrides[dateKey] = updatedForDate;
-      }
-
-      return nextOverrides;
-    });
-  };
-
-  const handleDeleteClient = (clientId) => {
-    setClients((prevClients) => prevClients.filter((client) => client.id !== clientId));
-
-    setScheduleOverrides((prevOverrides) => {
-      let changed = false;
-      const nextOverrides = Object.entries(prevOverrides).reduce((acc, [dateKey, overrides]) => {
-        if (overrides[clientId]) {
-          changed = true;
-          const { [clientId]: _removed, ...rest } = overrides;
-          if (Object.keys(rest).length > 0) {
-            acc[dateKey] = rest;
-          }
-        } else {
-          acc[dateKey] = overrides;
-        }
-        return acc;
-      }, {});
-
-      return changed ? nextOverrides : prevOverrides;
-    });
-
-    setNotificationRegistry((prev) => {
-      if (!prev || !prev[clientId]) return prev;
-      prev[clientId].forEach((notificationId) => {
-        Notifications.cancelScheduledNotificationAsync(notificationId).catch(() => {});
-      });
-      const { [clientId]: _removed, ...rest } = prev;
-      return rest;
-    });
-  };
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const syncNotifications = async () => {
-      if (!notificationsEnabled) {
-        await Notifications.cancelAllScheduledNotificationsAsync();
-        if (isMounted) {
-          setNotificationRegistry({});
-        }
-        return;
-      }
-
-      const registry = await rescheduleAllNotificationsAsync(clients, scheduleOverrides);
-      if (isMounted) {
-        setNotificationRegistry(registry || {});
-      }
-    };
-
-    syncNotifications();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [clients, scheduleOverrides, notificationsEnabled]);
-
-  const handleRequestNotificationPermission = useCallback(async () => {
-    const granted = await requestNotificationPermissionAsync();
-    setNotificationsEnabled(granted);
-    const canAsk = await shouldAskForNotificationPermission();
-    setCanAskNotifications(canAsk);
-
-    if (granted) {
-      const registry = await rescheduleAllNotificationsAsync(clients, scheduleOverrides);
-      setNotificationRegistry(registry);
-    }
-
-    return granted;
-  }, [clients, scheduleOverrides]);
-
   useEffect(() => {
     if (!isHydrated) return;
     saveAppData({
       clients,
-      adjustments: financialAdjustments,
-      scheduleOverrides,
-      notificationsEnabled,
-      notificationRegistry,
       planTier,
       hasCompletedOnboarding,
       hasAuthenticated,
       clientTerm,
     });
-  }, [clients, financialAdjustments, scheduleOverrides, notificationsEnabled, notificationRegistry, planTier, hasCompletedOnboarding, hasAuthenticated, clientTerm, isHydrated]);
+  }, [clients, planTier, hasCompletedOnboarding, hasAuthenticated, clientTerm, isHydrated]);
 
   if (!isHydrated) {
     return (
@@ -411,36 +242,10 @@ const App = () => {
       );
     }
     if (appState === 'onboarding') {
-      return (
-        <OnboardingScreen
-          onComplete={handleOnboardingComplete}
-          onRequestNotifications={handleRequestNotificationPermission}
-          notificationsEnabled={notificationsEnabled}
-          canAskNotifications={canAskNotifications}
-          clientLimit={CLIENT_LIMIT_FREE}
-          planTier={planTier}
-          onPlanSelection={handlePlanSelection}
-        />
-      );
+      return <OnboardingScreen onComplete={handleOnboardingComplete} />;
     }
     if (appState === 'auth') {
       return <AuthScreen onLoginSuccess={handleAuthSuccess} />;
-    }
-    if (appState === 'subscriptionCheckout') {
-      return (
-        <SubscriptionCheckoutScreen
-          onConfirm={() => {
-            setShouldShowCheckoutAfterAuth(false);
-            handleUpgradePlan();
-            setAppState('profession');
-          }}
-          onCancel={() => {
-            setShouldShowCheckoutAfterAuth(false);
-            handleDowngradePlan();
-            setAppState('profession');
-          }}
-        />
-      );
     }
     if (appState === 'profession') return <ProfessionScreen onComplete={handleProfessionComplete} />;
   }
@@ -452,17 +257,10 @@ const App = () => {
         clients={clientsForUI}
         onAddClient={handleAddClient}
         onUpdateClient={handleUpdateClient}
-        onDeleteClient={handleDeleteClient}
-        onUpgradePlan={handleUpgradePlan}
-        onDowngradePlan={handleDowngradePlan}
         planTier={planTier}
         clientLimit={CLIENT_LIMIT_FREE}
         onToggleClientPayment={handleToggleClientPayment}
         activeMonth={activeMonth}
-        adjustments={financialAdjustments}
-        scheduleOverrides={scheduleOverrides}
-        onRecordAdjustment={handleRecordAdjustment}
-        onSaveOverride={handleSaveOverride}
       />
     </NavigationContainer>
   );

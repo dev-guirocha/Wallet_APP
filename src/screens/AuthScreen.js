@@ -3,8 +3,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
-import Icon from 'react-native-vector-icons/Feather';
-import FontAwesome from 'react-native-vector-icons/FontAwesome';
+import { Feather as Icon, FontAwesome } from '@expo/vector-icons';
 
 const COLORS = {
   background: '#E4E2DD',

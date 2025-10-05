@@ -1,7 +1,7 @@
 // /src/screens/AddClientScreen.js
 
 import React, { useEffect, useState } from 'react';
-import { Platform, View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Switch, Alert } from 'react-native';
+import { Platform, View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -75,9 +75,6 @@ const AddClientScreen = ({
     client?.value !== undefined && client?.value !== null ? String(client.value) : ''
   );
   const [dueDate, setDueDate] = useState(client?.dueDay ?? '');
-  const [notificationsOptIn, setNotificationsOptIn] = useState(
-    client?.notificationsOptIn !== undefined ? client.notificationsOptIn : true
-  );
 
   useEffect(() => {
     if (client) {
@@ -91,7 +88,6 @@ const AddClientScreen = ({
         client.value !== undefined && client.value !== null ? String(client.value) : ''
       );
       setDueDate(client.dueDay || '');
-      setNotificationsOptIn(client.notificationsOptIn !== undefined ? client.notificationsOptIn : true);
     }
   }, [client]);
 
@@ -185,7 +181,6 @@ const AddClientScreen = ({
       time: classTimeLabel,
       value: sanitizedValue,
       dueDay: dueDate,
-      notificationsOptIn,
     };
     if (isEditing) {
       onUpdateClient?.(client.id, newClientData);
@@ -199,18 +194,8 @@ const AddClientScreen = ({
     } else {
       Alert.alert(
         'Limite atingido',
-        `A versão gratuita permite cadastrar até ${clientLimit} clientes. Conheça o Plano Pro para liberar cadastros ilimitados.`,
-        [
-          {
-            text: 'Ver Plano Pro',
-            onPress: () => navigation.navigate('Subscription', {
-              planTier,
-              clientCount,
-              clientLimit,
-            }),
-          },
-          { text: 'Cancelar', style: 'cancel' },
-        ],
+        `A versão gratuita permite cadastrar até ${clientLimit} clientes. Conheça o plano pago para liberar cadastros ilimitados.`,
+        [{ text: 'Entendi', style: 'default' }],
       );
     }
   };
@@ -304,15 +289,6 @@ const AddClientScreen = ({
           <Text style={styles.label}>Data de Pagamento</Text>
           <TextInput style={styles.input} value={dueDate} onChangeText={setDueDate} keyboardType="numeric" placeholder="Dia"/>
         </View>
-        <View style={[styles.inputGroup, styles.switchGroup]}>
-          <Text style={styles.switchLabel}>Receber lembretes</Text>
-          <Switch
-            value={notificationsOptIn}
-            onValueChange={setNotificationsOptIn}
-            trackColor={{ false: 'rgba(30,30,30,0.2)', true: COLORS.text }}
-            thumbColor={notificationsOptIn ? COLORS.background : '#f4f3f4'}
-          />
-        </View>
       </ScrollView>
       {Platform.OS === 'android' && showTimePicker ? (
         <DateTimePicker
@@ -346,8 +322,6 @@ const styles = StyleSheet.create({
   dayButtonSelected: { backgroundColor: COLORS.text },
   dayText: { color: COLORS.text, fontWeight: 'bold' },
   dayTextSelected: { color: COLORS.background },
-  switchGroup: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  switchLabel: { fontSize: 16, color: COLORS.accent, marginRight: 12 },
   limitNotice: { backgroundColor: 'rgba(30,30,30,0.08)', borderRadius: 10, padding: 12, marginBottom: 20 },
   limitText: { color: COLORS.accent, fontSize: 14 },
   iosPickerContainer: {
