@@ -1,5 +1,6 @@
 # Dependências
 node_modules/
+package-lock.json
 
 # Pastas de build nativo
 /ios
@@ -9,10 +10,5 @@ node_modules/
 .expo/
 .expo-shared/
 
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Arquivos de ambiente
-.env
+# Arquivos de sistema macOS
+.DS_Store
