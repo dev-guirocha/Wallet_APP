@@ -1,7 +1,17 @@
 // /src/screens/AddClientScreen.js
 
 import React, { useEffect, useState } from 'react';
-import { Platform, View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import {
+  Platform,
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  Switch,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -66,15 +76,23 @@ const AddClientScreen = ({
   const [name, setName] = useState(client?.name ?? '');
   const [location, setLocation] = useState(client?.location ?? '');
   const [selectedDays, setSelectedDays] = useState(Array.isArray(client?.days) ? [...client.days] : []);
+  const [dayTimes, setDayTimes] = useState(client?.dayTimes ? { ...client.dayTimes } : {});
   const initialTimeDate = parseTimeStringToDate(client?.time);
   const [classTimeDate, setClassTimeDate] = useState(initialTimeDate);
   const [classTimeLabel, setClassTimeLabel] = useState(client?.time ? formatTimeLabel(initialTimeDate) : '');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timeBeforePicker, setTimeBeforePicker] = useState(null);
+  const [pickerContext, setPickerContext] = useState({ type: 'default', day: null });
   const [monthlyValue, setMonthlyValue] = useState(
     client?.value !== undefined && client?.value !== null ? String(client.value) : ''
   );
   const [dueDate, setDueDate] = useState(client?.dueDay ?? '');
+  const [notificationsPaymentOptIn, setNotificationsPaymentOptIn] = useState(
+    client?.notificationsPaymentOptIn !== undefined ? client.notificationsPaymentOptIn : true,
+  );
+  const [notificationsScheduleOptIn, setNotificationsScheduleOptIn] = useState(
+    client?.notificationsScheduleOptIn !== undefined ? client.notificationsScheduleOptIn : true,
+  );
 
   useEffect(() => {
     if (client) {
@@ -88,12 +106,25 @@ const AddClientScreen = ({
         client.value !== undefined && client.value !== null ? String(client.value) : ''
       );
       setDueDate(client.dueDay || '');
+      setDayTimes(client.dayTimes ? { ...client.dayTimes } : {});
+      setNotificationsPaymentOptIn(
+        client.notificationsPaymentOptIn !== undefined ? client.notificationsPaymentOptIn : true,
+      );
+      setNotificationsScheduleOptIn(
+        client.notificationsScheduleOptIn !== undefined ? client.notificationsScheduleOptIn : true,
+      );
     }
   }, [client]);
 
   const toggleDay = (day) => {
     if (selectedDays.includes(day)) {
       setSelectedDays(selectedDays.filter(d => d !== day));
+      setDayTimes((prev) => {
+        if (!prev[day]) return prev;
+        const next = { ...prev };
+        delete next[day];
+        return next;
+      });
     } else {
       setSelectedDays([...selectedDays, day]);
     }
@@ -104,20 +135,39 @@ const AddClientScreen = ({
       if (event.type === 'dismissed') {
         if (timeBeforePicker) {
           setClassTimeDate(timeBeforePicker.date);
-          setClassTimeLabel(timeBeforePicker.label || '');
+          if (pickerContext.type === 'default') {
+            setClassTimeLabel(timeBeforePicker.label || '');
+          }
+          if (pickerContext.type === 'day' && pickerContext.day) {
+            setDayTimes((prev) => {
+              if (!timeBeforePicker.label) {
+                const next = { ...prev };
+                delete next[pickerContext.day];
+                return next;
+              }
+              return { ...prev, [pickerContext.day]: timeBeforePicker.label };
+            });
+          }
         }
         setTimeBeforePicker(null);
         setShowTimePicker(false);
+        setPickerContext({ type: 'default', day: null });
         return;
       }
 
       if (date) {
         setClassTimeDate(date);
-        setClassTimeLabel(formatTimeLabel(date));
+        if (pickerContext.type === 'default') {
+          setClassTimeLabel(formatTimeLabel(date));
+        } else if (pickerContext.type === 'day' && pickerContext.day) {
+          const label = formatTimeLabel(date);
+          setDayTimes((prev) => ({ ...prev, [pickerContext.day]: label }));
+        }
       }
 
       setTimeBeforePicker(null);
       setShowTimePicker(false);
+      setPickerContext({ type: 'default', day: null });
       return;
     }
 
@@ -128,25 +178,69 @@ const AddClientScreen = ({
 
     if (date) {
       setClassTimeDate(date);
-      setClassTimeLabel(formatTimeLabel(date));
+      if (pickerContext.type === 'default') {
+        setClassTimeLabel(formatTimeLabel(date));
+      }
     }
   };
 
   const handleTimePickerCancel = () => {
     if (timeBeforePicker) {
       setClassTimeDate(timeBeforePicker.date);
-      setClassTimeLabel(timeBeforePicker.label || '');
+      if (pickerContext.type === 'default') {
+        setClassTimeLabel(timeBeforePicker.label || '');
+      }
+      if (pickerContext.type === 'day' && pickerContext.day) {
+        setDayTimes((prev) => {
+          if (!timeBeforePicker.label) {
+            const next = { ...prev };
+            delete next[pickerContext.day];
+            return next;
+          }
+          return { ...prev, [pickerContext.day]: timeBeforePicker.label };
+        });
+      }
     }
     setTimeBeforePicker(null);
     setShowTimePicker(false);
+    setPickerContext({ type: 'default', day: null });
   };
 
   const handleTimePickerDone = () => {
-    if (!classTimeLabel && classTimeDate) {
-      setClassTimeLabel(formatTimeLabel(classTimeDate));
+    if (pickerContext.type === 'default') {
+      if (!classTimeLabel && classTimeDate) {
+        setClassTimeLabel(formatTimeLabel(classTimeDate));
+      }
+    } else if (pickerContext.type === 'day' && pickerContext.day) {
+      if (classTimeDate) {
+        const label = formatTimeLabel(classTimeDate);
+        setDayTimes((prev) => ({ ...prev, [pickerContext.day]: label }));
+      }
     }
     setTimeBeforePicker(null);
     setShowTimePicker(false);
+    setPickerContext({ type: 'default', day: null });
+  };
+
+  const openDefaultTimePicker = () => {
+    setPickerContext({ type: 'default', day: null });
+    setTimeBeforePicker({
+      date: new Date(classTimeDate),
+      label: classTimeLabel,
+    });
+    setShowTimePicker(true);
+  };
+
+  const openDayTimePicker = (day) => {
+    const existing = dayTimes[day];
+    const baseDate = parseTimeStringToDate(existing || classTimeLabel || '');
+    setClassTimeDate(baseDate);
+    setPickerContext({ type: 'day', day });
+    setTimeBeforePicker({
+      date: new Date(baseDate),
+      label: existing || '',
+    });
+    setShowTimePicker(true);
   };
 
   const handleSave = () => {
@@ -181,6 +275,14 @@ const AddClientScreen = ({
       time: classTimeLabel,
       value: sanitizedValue,
       dueDay: dueDate,
+      dayTimes: selectedDays.reduce((acc, day) => {
+        if (dayTimes[day]) {
+          acc[day] = dayTimes[day];
+        }
+        return acc;
+      }, {}),
+      notificationsPaymentOptIn,
+      notificationsScheduleOptIn,
     };
     if (isEditing) {
       onUpdateClient?.(client.id, newClientData);
@@ -243,18 +345,47 @@ const AddClientScreen = ({
             ))}
           </View>
         </View>
+        {selectedDays.length > 0 ? (
+          <View style={styles.dayTimesContainer}>
+            <Text style={styles.dayTimesTitle}>Horários por dia (opcional)</Text>
+            {selectedDays.map((day) => {
+              const overrideLabel = dayTimes[day];
+              const displayLabel = overrideLabel || classTimeLabel || 'Selecionar';
+              return (
+                <View key={day} style={styles.dayTimeRow}>
+                  <Text style={styles.dayTimeLabel}>{day}</Text>
+                  <TouchableOpacity
+                    style={styles.dayTimeButton}
+                    onPress={() => openDayTimePicker(day)}
+                  >
+                    <Text style={styles.dayTimeButtonText}>{displayLabel}</Text>
+                    <Icon name="clock" size={18} color={COLORS.text} />
+                  </TouchableOpacity>
+                  {overrideLabel ? (
+                    <TouchableOpacity
+                      style={styles.dayTimeReset}
+                      onPress={() =>
+                        setDayTimes((prev) => {
+                          const next = { ...prev };
+                          delete next[day];
+                          return next;
+                        })
+                      }
+                    >
+                      <Icon name="x" size={16} color={COLORS.placeholder} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
         <View style={styles.row}>
         <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
-          <Text style={styles.label}>Horário</Text>
+          <Text style={styles.label}>Horário padrão</Text>
           <TouchableOpacity
             style={[styles.input, styles.timePickerButton]}
-            onPress={() => {
-              setTimeBeforePicker({
-                date: new Date(classTimeDate),
-                label: classTimeLabel,
-              });
-              setShowTimePicker(true);
-            }}
+            onPress={openDefaultTimePicker}
           >
             <Text style={classTimeLabel ? styles.timePickerValue : styles.timePickerPlaceholder}>
               {classTimeLabel || 'Selecionar horário'}
@@ -288,6 +419,24 @@ const AddClientScreen = ({
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Data de Pagamento</Text>
           <TextInput style={styles.input} value={dueDate} onChangeText={setDueDate} keyboardType="numeric" placeholder="Dia"/>
+        </View>
+        <View style={[styles.inputGroup, styles.switchGroup]}>
+          <Text style={styles.switchLabel}>Notificar pagamento</Text>
+          <Switch
+            value={notificationsPaymentOptIn}
+            onValueChange={setNotificationsPaymentOptIn}
+            trackColor={{ false: 'rgba(30,30,30,0.2)', true: COLORS.text }}
+            thumbColor={notificationsPaymentOptIn ? COLORS.background : '#f4f3f4'}
+          />
+        </View>
+        <View style={[styles.inputGroup, styles.switchGroup]}>
+          <Text style={styles.switchLabel}>Lembretes de compromissos</Text>
+          <Switch
+            value={notificationsScheduleOptIn}
+            onValueChange={setNotificationsScheduleOptIn}
+            trackColor={{ false: 'rgba(30,30,30,0.2)', true: COLORS.text }}
+            thumbColor={notificationsScheduleOptIn ? COLORS.background : '#f4f3f4'}
+          />
         </View>
       </ScrollView>
       {Platform.OS === 'android' && showTimePicker ? (
@@ -340,6 +489,31 @@ const styles = StyleSheet.create({
   },
   iosPickerAction: { fontSize: 16, color: COLORS.accent },
   iosPickerActionPrimary: { color: COLORS.text, fontWeight: '600' },
+  dayTimesContainer: {
+    backgroundColor: 'rgba(30,30,30,0.05)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  dayTimesTitle: { fontSize: 14, fontWeight: '600', color: COLORS.accent, marginBottom: 12 },
+  dayTimeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  dayTimeLabel: { width: 60, fontSize: 14, color: COLORS.text, fontWeight: '600' },
+  dayTimeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flex: 1,
+    backgroundColor: COLORS.background,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(30,30,30,0.1)',
+  },
+  dayTimeButtonText: { fontSize: 14, color: COLORS.text, fontWeight: '600' },
+  dayTimeReset: { marginLeft: 10, padding: 6, borderRadius: 12, backgroundColor: 'rgba(30,30,30,0.05)' },
+  switchGroup: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  switchLabel: { fontSize: 16, color: COLORS.accent, marginRight: 12 },
 });
 
 export default AddClientScreen;

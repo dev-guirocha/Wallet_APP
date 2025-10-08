@@ -42,14 +42,13 @@ const ProfessionScreen = ({ onComplete }) => {
 
   const handleContinue = () => {
     // Normaliza o texto digitado para uma comparação mais segura
-    const normalizedProfession = profession.trim().toLowerCase();
+    const trimmedProfession = profession.trim();
+    const normalizedProfession = trimmedProfession.toLowerCase();
 
     // Verifica se a profissão está na lista da área da saúde
-    if (healthProfessions.includes(normalizedProfession)) {
-      onComplete('Paciente'); // Se for da saúde, o termo é "Paciente"
-    } else {
-      onComplete('Cliente'); // Caso contrário, o termo é "Cliente"
-    }
+    const term = healthProfessions.includes(normalizedProfession) ? 'Paciente' : 'Cliente';
+
+    onComplete({ term, profession: trimmedProfession });
   };
 
   return (

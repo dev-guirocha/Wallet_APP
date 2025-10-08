@@ -9,6 +9,9 @@ import HomeScreen from './src/screens/HomeScreen';
 import AgendaScreen from './src/screens/AgendaScreen';
 import ClientsScreen from './src/screens/ClientsScreen';
 import AddClientScreen from './src/screens/AddClientScreen';
+import RevenueInsightsScreen from './src/screens/RevenueInsightsScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
+import PlanDetailsScreen from './src/screens/PlanDetailsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -25,6 +28,21 @@ const TabNavigator = ({
   clientLimit,
   activeMonth,
   onToggleClientPayment,
+  onDeleteClient,
+  scheduleOverrides,
+  onMarkAppointmentStatus,
+  onClearAppointmentStatus,
+  onRescheduleAppointment,
+  adsEnabled,
+  onSignOut,
+  notificationsEnabled,
+  canAskNotifications,
+  onRequestNotifications,
+  onToggleNotifications,
+  notificationPermissionGranted,
+  onUpgradePlan,
+  userName,
+  userProfession,
 }) => {
   return (
     <Tab.Navigator
@@ -33,8 +51,10 @@ const TabNavigator = ({
         tabBarIcon: ({ color, size }) => {
           let iconName;
           if (route.name === 'Início') iconName = 'home';
+          else if (route.name === 'Gráficos') iconName = 'pie-chart';
           else if (route.name === 'Agenda') iconName = 'calendar';
           else if (route.name === 'ClientesTab') iconName = 'users';
+          else if (route.name === 'Configurações') iconName = 'settings';
           
           return <Icon name={iconName} size={size} color={color} />;
         },
@@ -64,21 +84,61 @@ const TabNavigator = ({
             clientLimit={clientLimit}
             activeMonth={activeMonth}
             onToggleClientPayment={onToggleClientPayment}
+            scheduleOverrides={scheduleOverrides}
+            onMarkAppointmentStatus={onMarkAppointmentStatus}
+            onClearAppointmentStatus={onClearAppointmentStatus}
+            onRescheduleAppointment={onRescheduleAppointment}
+            adsEnabled={adsEnabled}
+            userName={userName}
+            userProfession={userProfession}
           />
         )}
       </Tab.Screen>
 
-      {/* ======================================================= */}
-      {/* A CORREÇÃO ESTÁ AQUI                                    */}
-      {/* ======================================================= */}
-      {/* A tela da Agenda agora recebe a lista 'clients' corretamente */}
-      <Tab.Screen name="Agenda">
-        {props => <AgendaScreen {...props} clients={clients} />}
+      <Tab.Screen name="Gráficos" options={{ title: 'Gráficos' }}>
+        {props => (
+          <RevenueInsightsScreen
+            {...props}
+            clients={clients}
+            activeMonth={activeMonth}
+          />
+        )}
       </Tab.Screen>
-      {/* ======================================================= */}
-      
+
+      <Tab.Screen name="Agenda">
+        {props => <AgendaScreen {...props} clients={clients} scheduleOverrides={scheduleOverrides} />}
+      </Tab.Screen>
+
       <Tab.Screen name="ClientesTab" options={{ title: 'Clientes' }}>
-        {props => <ClientsScreen {...props} clientTerm={clientTerm} clients={clients} />}
+        {props => (
+          <ClientsScreen
+            {...props}
+            clientTerm={clientTerm}
+            clients={clients}
+            onToggleClientPayment={onToggleClientPayment}
+            onDeleteClient={onDeleteClient}
+          />
+        )}
+      </Tab.Screen>
+
+      <Tab.Screen name="Configurações">
+        {props => (
+          <SettingsScreen
+            {...props}
+            planTier={planTier}
+            clientLimit={clientLimit}
+            clientCount={clients.length}
+            notificationsEnabled={notificationsEnabled}
+            canAskNotifications={canAskNotifications}
+            onRequestNotifications={onRequestNotifications}
+            onToggleNotifications={onToggleNotifications}
+            notificationPermissionGranted={notificationPermissionGranted}
+            onSignOut={onSignOut}
+            onUpgradePlan={onUpgradePlan}
+            userName={userName}
+            userProfession={userProfession}
+          />
+        )}
       </Tab.Screen>
     </Tab.Navigator>
   );
@@ -93,6 +153,21 @@ const AppNavigator = ({
   clientLimit,
   activeMonth,
   onToggleClientPayment,
+  onDeleteClient,
+  scheduleOverrides,
+  onMarkAppointmentStatus,
+  onClearAppointmentStatus,
+  onRescheduleAppointment,
+  adsEnabled,
+  onSignOut,
+  notificationsEnabled,
+  canAskNotifications,
+  onRequestNotifications,
+  onToggleNotifications,
+  notificationPermissionGranted,
+  onUpgradePlan,
+  userName,
+  userProfession,
 }) => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -106,6 +181,21 @@ const AppNavigator = ({
             clientLimit={clientLimit}
             activeMonth={activeMonth}
             onToggleClientPayment={onToggleClientPayment}
+            onDeleteClient={onDeleteClient}
+            scheduleOverrides={scheduleOverrides}
+            onMarkAppointmentStatus={onMarkAppointmentStatus}
+            onClearAppointmentStatus={onClearAppointmentStatus}
+            onRescheduleAppointment={onRescheduleAppointment}
+            adsEnabled={adsEnabled}
+            onSignOut={onSignOut}
+            notificationsEnabled={notificationsEnabled}
+            canAskNotifications={canAskNotifications}
+            onRequestNotifications={onRequestNotifications}
+            onToggleNotifications={onToggleNotifications}
+            notificationPermissionGranted={notificationPermissionGranted}
+            onUpgradePlan={onUpgradePlan}
+            userName={userName}
+            userProfession={userProfession}
           />
         )}
       </Stack.Screen>
@@ -122,6 +212,18 @@ const AppNavigator = ({
             planTier={planTier}
             clientLimit={clientLimit}
             clientCount={clients.length}
+          />
+        )}
+      </Stack.Screen>
+      <Stack.Screen
+        name="PlanDetails"
+        options={{ presentation: 'modal', title: 'Wallet Pro' }}
+      >
+        {props => (
+          <PlanDetailsScreen
+            {...props}
+            planTier={planTier}
+            onUpgradePlan={onUpgradePlan}
           />
         )}
       </Stack.Screen>

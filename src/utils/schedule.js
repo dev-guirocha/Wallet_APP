@@ -26,13 +26,25 @@ const normalizeDate = (value) => {
   return parsed;
 };
 
-const buildBaseAppointment = (client, dateKey) => ({
+const resolveTimeForClient = (client, weekdayLabel) => {
+  if (!client) return '';
+  const dayTimes = client.dayTimes || {};
+  if (weekdayLabel && dayTimes[weekdayLabel]) {
+    return dayTimes[weekdayLabel];
+  }
+  return client.time || '';
+};
+
+const buildBaseAppointment = (client, dateKey, weekdayLabel) => ({
   clientId: client.id,
   id: `${client.id}-${dateKey}`,
+  dateKey,
   name: client.name,
   location: client.location || DEFAULT_LOCATION,
-  time: client.time || '',
+  time: resolveTimeForClient(client, weekdayLabel),
   note: null,
+  status: 'scheduled',
+  statusUpdatedAt: null,
 });
 
 const shouldClientAttendOnDay = (client, weekdayLabel) => {
@@ -53,7 +65,7 @@ export const getAppointmentsForDate = ({ date, clients = [], overrides = {} }) =
 
   clients.forEach((client) => {
     if (!client || !shouldClientAttendOnDay(client, weekdayLabel)) return;
-    const base = buildBaseAppointment(client, dateKey);
+    const base = buildBaseAppointment(client, dateKey, weekdayLabel);
     appointmentsMap.set(client.id, base);
   });
 
@@ -67,18 +79,32 @@ export const getAppointmentsForDate = ({ date, clients = [], overrides = {} }) =
     }
 
     const client = clients.find((item) => item.id === clientId);
-    if (!client) return;
+    const existing = appointmentsMap.get(clientId) ?? (client ? buildBaseAppointment(client, dateKey, weekdayLabel) : null);
 
-    const existing = appointmentsMap.get(clientId) ?? buildBaseAppointment(client, dateKey);
+    if (!existing && action !== 'add') {
+      return;
+    }
 
     const nextAppointment = {
-      ...existing,
+      ...(existing ?? {
+        clientId,
+        id: `${clientId}-${dateKey}`,
+        dateKey,
+        name: override.name || 'Compromisso',
+        location: override.location || DEFAULT_LOCATION,
+        time: override.time || resolveTimeForClient(client, weekdayLabel),
+        note: null,
+        status: 'scheduled',
+        statusUpdatedAt: null,
+      }),
       ...(override.name ? { name: override.name } : {}),
       ...(override.time !== undefined ? { time: override.time } : {}),
       ...(override.location !== undefined
         ? { location: override.location || DEFAULT_LOCATION }
         : {}),
       ...(override.note !== undefined ? { note: override.note } : {}),
+      ...(override.status ? { status: override.status } : {}),
+      ...(override.statusUpdatedAt ? { statusUpdatedAt: override.statusUpdatedAt } : {}),
     };
 
     if (action) {

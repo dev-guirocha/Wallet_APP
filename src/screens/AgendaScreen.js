@@ -4,6 +4,10 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
+import { Feather as Icon } from '@expo/vector-icons';
+
+import { getDateKey } from '../utils/dateUtils';
+import { getAppointmentsForDate } from '../utils/schedule';
 
 // ... (LocaleConfig e COLORS continuam os mesmos)
 LocaleConfig.locales['pt-br'] = {
@@ -22,10 +26,7 @@ const COLORS = {
   accent: '#5D5D5D',
 };
 
-// Mapeia nossos dias da semana para os números que a biblioteca de datas usa (0=Dom, 1=Seg, etc.)
-const dayMap = { 'Dom': 0, 'Seg': 1, 'Ter': 2, 'Qua': 3, 'Qui': 4, 'Sex': 5, 'Sáb': 6 };
-
-const AgendaScreen = ({ clients }) => {
+const AgendaScreen = ({ clients, scheduleOverrides = {} }) => {
   const [selectedDate, setSelectedDate] = useState('');
 
   // =======================================================
@@ -38,20 +39,15 @@ const AgendaScreen = ({ clients }) => {
     for (let i = 0; i < 90; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
-      const dayOfWeek = date.getDay();
-      
-      const appointmentsForDay = clients.filter(client => {
-        const clientDays = client.days.map(d => dayMap[d]);
-        return clientDays.includes(dayOfWeek);
-      });
+      const appointmentsForDay = getAppointmentsForDate({ date, clients, overrides: scheduleOverrides });
 
       if (appointmentsForDay.length > 0) {
-        const dateString = date.toISOString().split('T')[0];
+        const dateString = getDateKey(date);
         data[dateString] = appointmentsForDay;
       }
     }
     return data;
-  }, [clients]);
+  }, [clients, scheduleOverrides]);
   // =======================================================
   
   const selectedAppointments = appointmentsData[selectedDate] || [];
@@ -100,11 +96,44 @@ const AgendaScreen = ({ clients }) => {
         <ScrollView style={styles.appointmentsList}>
           {selectedAppointments.length > 0 ? (
             selectedAppointments.map(app => (
-              <View key={app.id} style={styles.appointmentItem}>
-                <Text style={styles.appointmentTime}>{app.time}</Text>
-                <View style={styles.appointmentDetails}>
-                  <Text style={styles.appointmentName}>{app.name}</Text>
-                  <Text style={styles.appointmentLocation}>{app.location}</Text>
+              <View key={app.id} style={styles.appointmentCard}>
+                <View style={styles.appointmentHeader}>
+                  <View style={styles.appointmentTitleBlock}>
+                    <Text style={styles.appointmentName}>{app.name}</Text>
+                    {app.status && app.status !== 'scheduled' ? (
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          app.status === 'done' ? styles.statusBadgeDone : styles.statusBadgePending,
+                        ]}
+                      >
+                        <Text style={styles.statusBadgeText}>
+                          {app.status === 'done'
+                            ? 'Concluído'
+                            : app.status === 'rescheduled'
+                              ? 'Adiado'
+                              : app.status}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.timePill}>
+                    <Icon name="clock" size={16} color="#1E1E1E" />
+                    <Text style={styles.timePillText}>{app.time || '--:--'}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.appointmentBody}>
+                  <View style={styles.infoRow}>
+                    <Icon name="map-pin" size={16} color="rgba(30,30,30,0.6)" />
+                    <Text style={styles.appointmentLocation}>{app.location}</Text>
+                  </View>
+                  {app.note ? (
+                    <View style={[styles.infoRow, styles.noteRow]}>
+                      <Icon name="clipboard" size={16} color="rgba(30,30,30,0.6)" />
+                      <Text style={styles.appointmentNote}>{app.note}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
             ))
@@ -123,11 +152,47 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 30, paddingTop: 30, paddingBottom: 15 },
   title: { fontSize: 28, fontWeight: 'bold', color: COLORS.text },
   appointmentsList: { marginTop: 20, flex: 1 },
-  appointmentItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 30, marginBottom: 20 },
-  appointmentTime: { fontSize: 16, fontWeight: '600', color: COLORS.text, width: 60 },
-  appointmentDetails: { flex: 1, borderLeftWidth: 2, borderLeftColor: COLORS.text, paddingLeft: 15 },
-  appointmentName: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
-  appointmentLocation: { fontSize: 14, color: COLORS.accent },
+  appointmentCard: {
+    marginHorizontal: 30,
+    marginBottom: 16,
+    backgroundColor: COLORS.background,
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(30,30,30,0.06)',
+  },
+  appointmentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  appointmentTitleBlock: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+  appointmentName: { fontSize: 16, fontWeight: '700', color: COLORS.text, flexShrink: 1 },
+  statusBadge: { marginLeft: 10, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  statusBadgeDone: { backgroundColor: '#5CB85C' },
+  statusBadgePending: { backgroundColor: '#F0AD4E' },
+  statusBadgeText: { color: COLORS.background, fontSize: 11, fontWeight: '700' },
+  timePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(30,30,30,0.05)',
+  },
+  timePillText: { marginLeft: 6, fontSize: 13, fontWeight: '600', color: COLORS.text },
+  appointmentBody: { marginTop: 4 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  appointmentLocation: { marginLeft: 8, fontSize: 13, color: COLORS.accent, flexShrink: 1 },
+  appointmentNote: { marginLeft: 8, fontSize: 13, color: COLORS.placeholder, flexShrink: 1 },
+  noteRow: { marginBottom: 0 },
   noAppointmentsText: { color: COLORS.placeholder, fontStyle: 'italic', paddingHorizontal: 30, textAlign: 'center', marginTop: 20 },
 });
 

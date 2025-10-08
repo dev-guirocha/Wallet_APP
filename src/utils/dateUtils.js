@@ -8,6 +8,20 @@ export const getMonthKey = (date = new Date()) => {
 
 export const getDateKey = (date = new Date()) => date.toISOString().split('T')[0];
 
+export const parseDateKeyToDate = (dateKey) => {
+  if (!dateKey) return null;
+  const parts = String(dateKey).split('-');
+  if (parts.length !== 3) return null;
+  const [yearString, monthString, dayString] = parts;
+  const year = Number(yearString);
+  const month = Number(monthString);
+  const day = Number(dayString);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+};
+
 export const getReadableMonth = (monthKey) => {
   if (!monthKey) return '';
   const [year, month] = monthKey.split('-');

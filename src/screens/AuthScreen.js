@@ -1,7 +1,7 @@
 // /src/screens/AuthScreen.js
 
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
 import { Feather as Icon, FontAwesome } from '@expo/vector-icons';
 
@@ -13,12 +13,60 @@ const COLORS = {
 
 const AuthScreen = ({ onLoginSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+
+  const buildProfilePayload = () => {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) {
+      Alert.alert('Campo obrigatório', 'Informe um e-mail válido.');
+      return null;
+    }
+
+    const trimmedName = name.trim();
+    const profile = { email: trimmedEmail };
+
+    if (!isLogin && trimmedName.length > 0) {
+      profile.name = trimmedName;
+    }
+
+    if (!isLogin) {
+      profile.isNewUser = true;
+    }
+
+    return profile;
+  };
+
+  const triggerSuccess = () => {
+    if (!onLoginSuccess) return;
+    const profile = buildProfilePayload();
+    if (!profile) return;
+    const maybePromise = onLoginSuccess(profile);
+    if (maybePromise && typeof maybePromise.then === 'function') {
+      maybePromise.catch(() => {});
+    }
+  };
 
   const handlePrimaryAction = () => {
     // A lógica de validação do Firebase virá aqui no futuro.
-    if (onLoginSuccess) {
-      onLoginSuccess();
+    triggerSuccess();
+  };
+
+  const handleQuickAccess = () => {
+    if (!onLoginSuccess) return;
+    const profile = buildProfilePayload();
+    if (!profile) return;
+    const maybePromise = onLoginSuccess(profile);
+    if (maybePromise && typeof maybePromise.then === 'function') {
+      maybePromise.catch(() => {});
     }
+  };
+
+  const toggleMode = () => {
+    if (!isLogin) {
+      setName('');
+    }
+    setIsLogin(!isLogin);
   };
 
   return (
@@ -39,6 +87,8 @@ const AuthScreen = ({ onLoginSuccess }) => {
                 placeholder="Nome Completo"
                 placeholderTextColor={COLORS.placeholder}
                 autoCapitalize="words"
+                value={name}
+                onChangeText={setName}
               />
             )}
 
@@ -48,6 +98,8 @@ const AuthScreen = ({ onLoginSuccess }) => {
               placeholderTextColor={COLORS.placeholder}
               keyboardType="email-address"
               autoCapitalize="none"
+              value={email}
+              onChangeText={setEmail}
             />
             <TextInput
               style={styles.input}
@@ -68,7 +120,7 @@ const AuthScreen = ({ onLoginSuccess }) => {
             {/* ======================================================= */}
             {/* NOVO BOTÃO DE LOGIN TESTE ADICIONADO AQUI              */}
             {/* ======================================================= */}
-            <TouchableOpacity style={styles.testButton} onPress={onLoginSuccess}>
+            <TouchableOpacity style={styles.testButton} onPress={handleQuickAccess}>
               <Text style={styles.testButtonText}>Acesso Rápido (Login Teste)</Text>
             </TouchableOpacity>
             {/* ======================================================= */}
@@ -92,7 +144,7 @@ const AuthScreen = ({ onLoginSuccess }) => {
             </View>
           </View>
 
-          <TouchableOpacity onPress={() => setIsLogin(!isLogin)} style={styles.toggleButton}>
+          <TouchableOpacity onPress={toggleMode} style={styles.toggleButton}>
             <Text style={styles.toggleText}>
               {isLogin ? 'Não tem uma conta? ' : 'Já tem uma conta? '}
               <Text style={styles.toggleLink}>{isLogin ? 'Cadastre-se' : 'Faça login'}</Text>

@@ -27,7 +27,12 @@ const onboardingData = [
   },
 ];
 
-const OnboardingScreen = ({ onComplete }) => {
+const OnboardingScreen = ({
+  onComplete,
+  onRequestNotifications,
+  notificationsEnabled = false,
+  canAskNotifications = true,
+}) => {
   // ETAPA 1: Criar uma "referência" para controlar o Swiper de fora
   const swiperRef = useRef(null);
 
@@ -45,6 +50,12 @@ const OnboardingScreen = ({ onComplete }) => {
       onComplete();
     }
   };
+
+  const handleNotificationsPress = async () => {
+    if (!onRequestNotifications) return;
+    await onRequestNotifications();
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <Swiper
@@ -68,6 +79,34 @@ const OnboardingScreen = ({ onComplete }) => {
       </Swiper>
 
       <View style={styles.footer}>
+        <View style={styles.permissionCard}>
+          <View style={styles.permissionHeader}>
+            <Icon name="bell" size={24} color={COLORS.text} />
+            <View style={styles.permissionTextBlock}>
+              <Text style={styles.permissionTitle}>Receber lembretes</Text>
+              <Text style={styles.permissionSubtitle}>
+                Ative notificações para cobrança e compromissos automáticos.
+              </Text>
+            </View>
+          </View>
+          {notificationsEnabled ? (
+            <View style={styles.permissionStatus}>
+              <Icon name="check" size={16} color={COLORS.text} />
+              <Text style={styles.permissionStatusText}>Notificações ativadas</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[styles.permissionButton, !canAskNotifications && styles.permissionButtonDisabled]}
+              onPress={handleNotificationsPress}
+              disabled={!canAskNotifications}
+            >
+              <Text style={styles.permissionButtonText}>
+                {canAskNotifications ? 'Ativar lembretes' : 'Verifique as configurações do sistema'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         {/* ETAPA 4: O botão agora chama nossa nova função */}
         <TouchableOpacity style={styles.doneButton} onPress={handlePress}>
           {/* O texto do botão agora muda dinamicamente */}
@@ -115,6 +154,27 @@ const styles = StyleSheet.create({
     padding: 30,
     paddingTop: 0,
   },
+  permissionCard: {
+    backgroundColor: 'rgba(30,30,30,0.05)',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 20,
+  },
+  permissionHeader: { flexDirection: 'row', alignItems: 'center' },
+  permissionTextBlock: { marginLeft: 12, flex: 1 },
+  permissionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text },
+  permissionSubtitle: { fontSize: 13, color: COLORS.text, opacity: 0.7, marginTop: 4 },
+  permissionButton: {
+    marginTop: 16,
+    backgroundColor: COLORS.text,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  permissionButtonDisabled: { opacity: 0.5 },
+  permissionButtonText: { color: COLORS.background, fontSize: 14, fontWeight: '600' },
+  permissionStatus: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
+  permissionStatusText: { color: COLORS.text, fontSize: 14, fontWeight: '600', marginLeft: 6 },
   doneButton: {
     backgroundColor: COLORS.text,
     paddingVertical: 16,
