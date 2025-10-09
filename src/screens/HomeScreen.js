@@ -32,7 +32,7 @@ const COLORS = {
   background: '#E4E2DD',
   text: '#1E1E1E',
   placeholder: 'rgba(30, 30, 30, 0.5)',
-  accent: '#5D5D5D',
+  accent: '#8A8A8A',
 };
 
 const getStatusBadgeStyle = (status) => ({
@@ -85,6 +85,7 @@ const HomeScreen = ({
   userName = '',
   userProfession = '',
 }) => {
+  const [fabMenuVisible, setFabMenuVisible] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [rescheduleState, setRescheduleState] = useState(() => {
     const bounds = buildRescheduleBounds();
@@ -112,39 +113,29 @@ const HomeScreen = ({
     [clients],
   );
 
-  const financialData = useMemo(() => {
-    const totals = clients.reduce(
-      (acc, client) => {
-        const numericValue = Number(client.value || 0);
+  // CHECKPOINT 8: CÁLCULOS FINANCEIROS ATUALIZADOS
+    const financialData = useMemo(() => {
+      const currentMonthKey = new Date().toISOString().slice(0, 7); // 'AAAA-MM'
 
-        acc.expectedMonth += numericValue;
-
-        const payments = client.payments ?? {};
-        const currentMonthEntry = payments[activeMonth];
-        if (currentMonthEntry?.status === 'paid') {
-          acc.receivedMonth += numericValue;
-        } else {
-          acc.pendingMonth += numericValue;
+      const totalToReceive = clients.reduce((sum, client) => sum + parseFloat(client.value || 0), 0);
+      
+      const received = clients.reduce((sum, client) => {
+        if (client.payments && client.payments[currentMonthKey] === 'pago') {
+          return sum + parseFloat(client.value || 0);
         }
+        return sum;
+      }, 0);
 
-        const paidOccurrences = Object.values(payments).reduce(
-          (count, entry) => (entry?.status === 'paid' ? count + 1 : count),
-          0,
-        );
-        acc.receivedAllTime += paidOccurrences * numericValue;
+      const pending = totalToReceive - received;
+      const progress = totalToReceive > 0 ? (received / totalToReceive) * 100 : 0;
 
-        return acc;
-      },
-      { expectedMonth: 0, receivedMonth: 0, pendingMonth: 0, receivedAllTime: 0 },
-    );
-
-    const progress = totals.expectedMonth > 0 ? totals.receivedMonth / totals.expectedMonth : 0;
-
-    return {
-      ...totals,
-      progress,
-    };
-  }, [clients, activeMonth]);
+      return {
+        totalToReceive: totalToReceive.toFixed(2),
+        received: received.toFixed(2),
+        pending: pending.toFixed(2),
+        progress: `${progress}%`,
+      };
+  }, [clients]);
 
   const todayAppointments = useMemo(() => {
     const today = new Date();
@@ -209,7 +200,12 @@ const HomeScreen = ({
     return date.charAt(0).toUpperCase() + date.slice(1);
   };
 
-  const progressWidth = `${Math.max(0, Math.min(100, Math.round(financialData.progress * 100)))}%`;
+  const navigateAndCloseMenu = (screen) => {
+    setFabMenuVisible(false);
+    navigation.navigate(screen, { clientTerm });
+  };
+
+  const progressWidth = financialData.progress; // já vem como "50%"
   const shouldShowAds = adsEnabled && planTier === 'free';
 
   const normalizedName = useMemo(() => {
@@ -377,21 +373,25 @@ const HomeScreen = ({
 
           {!isMonthCardCollapsed ? (
             <>
-              <Text style={styles.receivedValue}>R$ {formatCurrency(financialData.expectedMonth)}</Text>
+              <Text style={styles.receivedValue}>R$ {formatCurrency(Number(financialData.totalToReceive))}</Text>
               <Text style={styles.receivedLabel}>Previsto neste mês</Text>
 
               <View style={styles.progressContainer}>
                 <View style={[styles.progressBar, { width: progressWidth }]} />
               </View>
+              <View style={styles.progressLabels}>
+                <Text style={styles.progressText}>Total a Receber: R$ {formatCurrency(financialData.expectedMonth)}</Text>
+                <Text style={styles.progressText}>Pendente: R$ R$ {formatCurrency(Number(financialData.pending))}</Text>
+              </View>
               <View style={styles.metricsRow}>
                 <View style={styles.metricBox}>
-                  <Text style={styles.metricLabel}>Total recebido</Text>
-                  <Text style={styles.metricValue}>R$ {formatCurrency(financialData.receivedAllTime)}</Text>
+                  <Text style={styles.metricLabel}>Recebido no mês</Text>
+                  <Text style={styles.metricValue}>R$ {formatCurrency(Number(financialData.received))}</Text>
                 </View>
                 <View style={styles.metricDivider} />
                 <View style={styles.metricBox}>
-                  <Text style={styles.metricLabel}>Pendentes no mês</Text>
-                  <Text style={styles.metricValue}>R$ {formatCurrency(financialData.pendingMonth)}</Text>
+                  <Text style={styles.metricLabel}>Pendente no mês</Text>
+                  <Text style={styles.metricValue}>R$ {formatCurrency(Number(financialData.pending))}</Text>
                 </View>
               </View>
             </>
@@ -488,9 +488,30 @@ const HomeScreen = ({
         </View>
 
       </ScrollView>
+      {fabMenuVisible && (
+        <View style={styles.fabMenu}>
+          <TouchableOpacity
+            style={styles.fabMenuItem}
+            onPress={() => {
+              // Placeholder action for scheduling flow; adjust route name if you have it
+              navigateAndCloseMenu('Schedule');
+            }}
+          >
+            <Text style={styles.fabMenuText}>Agendar</Text>
+            <Icon name="clock" size={20} color={COLORS.background} />
+          </TouchableOpacity>
 
-      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddClient', { clientTerm })}>
-        <Icon name="plus" size={28} color={COLORS.background} />
+          <TouchableOpacity
+            style={styles.fabMenuItem}
+            onPress={() => navigateAndCloseMenu('AddClient')}
+          >
+            <Text style={styles.fabMenuText}>Novo {clientTerm}</Text>
+            <Icon name="user-plus" size={20} color={COLORS.background} />
+          </TouchableOpacity>
+        </View>
+      )}
+      <TouchableOpacity style={styles.fab} onPress={() => setFabMenuVisible((prev) => !prev)}>
+        <Icon name={fabMenuVisible ? 'x' : 'plus'} size={28} color={COLORS.background} />
       </TouchableOpacity>
 
       <Modal
@@ -671,8 +692,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1 },
   header: { padding: 30, paddingBottom: 15 },
-  greeting: { fontSize: 28, fontWeight: 'bold', color: COLORS.text },
-  date: { fontSize: 16, color: COLORS.accent, marginTop: 4 },
+  greeting: { fontSize: 28, fontWeight: '900', color: COLORS.text },
+  date: { fontSize: 16, fontWeight: '300', color: COLORS.accent, marginTop: 4 },
   homeLimitBanner: {
     marginTop: 18,
     backgroundColor: 'rgba(30,30,30,0.08)',
@@ -702,6 +723,8 @@ const styles = StyleSheet.create({
   receivedLabel: { fontSize: 16, color: COLORS.accent, marginBottom: 20 },
   progressContainer: { height: 8, backgroundColor: 'rgba(30,30,30,0.1)', borderRadius: 4, overflow: 'hidden' },
   progressBar: { height: '100%', backgroundColor: COLORS.text, borderRadius: 4 },
+  progressLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  progressText: { fontSize: 12, color: COLORS.accent },
   metricsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -813,6 +836,24 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { height: 2, width: 0 },
   },
+  fabMenu: {
+    position: 'absolute',
+    bottom: 100,
+    right: 30,
+    backgroundColor: COLORS.text,
+    borderRadius: 15,
+    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { height: 2, width: 0 },
+  },
+  fabMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+  },
+  fabMenuText: { color: COLORS.background, fontSize: 16, fontWeight: '600', marginRight: 10 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',

@@ -3,8 +3,8 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { Feather as Icon } from '@expo/vector-icons';
-
+import { Ionicons } from '@expo/vector-icons';
+import ClientDetailScreen from './src/screens/ClientDetailScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import AgendaScreen from './src/screens/AgendaScreen';
 import ClientsScreen from './src/screens/ClientsScreen';
@@ -27,7 +27,7 @@ const TabNavigator = ({
   planTier,
   clientLimit,
   activeMonth,
-  onToggleClientPayment,
+  onTogglePayment,
   onDeleteClient,
   scheduleOverrides,
   onMarkAppointmentStatus,
@@ -43,20 +43,26 @@ const TabNavigator = ({
   onUpgradePlan,
   userName,
   userProfession,
+  onEditClient,
 }) => {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarIcon: ({ color, size }) => {
+        tabBarIcon: ({ color, size, focused }) => {
           let iconName;
-          if (route.name === 'Início') iconName = 'home';
-          else if (route.name === 'Gráficos') iconName = 'pie-chart';
-          else if (route.name === 'Agenda') iconName = 'calendar';
-          else if (route.name === 'ClientesTab') iconName = 'users';
-          else if (route.name === 'Configurações') iconName = 'settings';
-          
-          return <Icon name={iconName} size={size} color={color} />;
+          if (route.name === 'Início') {
+            iconName = focused ? 'home' : 'home-outline';
+          } else if (route.name === 'Gráficos') {
+            iconName = focused ? 'pie-chart' : 'pie-chart-outline';
+          } else if (route.name === 'Agenda') {
+            iconName = focused ? 'calendar' : 'calendar-outline';
+          } else if (route.name === 'ClientesTab') {
+            iconName = focused ? 'people' : 'people-outline';
+          } else if (route.name === 'Configurações') {
+            iconName = focused ? 'settings' : 'settings-outline';
+          }
+          return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarActiveTintColor: COLORS.text,
         tabBarInactiveTintColor: COLORS.placeholder,
@@ -83,7 +89,6 @@ const TabNavigator = ({
             planTier={planTier}
             clientLimit={clientLimit}
             activeMonth={activeMonth}
-            onToggleClientPayment={onToggleClientPayment}
             scheduleOverrides={scheduleOverrides}
             onMarkAppointmentStatus={onMarkAppointmentStatus}
             onClearAppointmentStatus={onClearAppointmentStatus}
@@ -115,7 +120,7 @@ const TabNavigator = ({
             {...props}
             clientTerm={clientTerm}
             clients={clients}
-            onToggleClientPayment={onToggleClientPayment}
+            onTogglePayment={onTogglePayment}
             onDeleteClient={onDeleteClient}
           />
         )}
@@ -144,31 +149,7 @@ const TabNavigator = ({
   );
 };
 
-const AppNavigator = ({
-  clientTerm,
-  clients,
-  onAddClient,
-  onUpdateClient,
-  planTier,
-  clientLimit,
-  activeMonth,
-  onToggleClientPayment,
-  onDeleteClient,
-  scheduleOverrides,
-  onMarkAppointmentStatus,
-  onClearAppointmentStatus,
-  onRescheduleAppointment,
-  adsEnabled,
-  onSignOut,
-  notificationsEnabled,
-  canAskNotifications,
-  onRequestNotifications,
-  onToggleNotifications,
-  notificationPermissionGranted,
-  onUpgradePlan,
-  userName,
-  userProfession,
-}) => {
+const AppNavigator = ({ clientTerm, clients, onAddClient, onTogglePayment, onDeleteClient, onEditClient }) => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs">
@@ -177,43 +158,17 @@ const AppNavigator = ({
             {...props}
             clientTerm={clientTerm}
             clients={clients}
-            planTier={planTier}
-            clientLimit={clientLimit}
-            activeMonth={activeMonth}
-            onToggleClientPayment={onToggleClientPayment}
+            onTogglePayment={onTogglePayment}
             onDeleteClient={onDeleteClient}
-            scheduleOverrides={scheduleOverrides}
-            onMarkAppointmentStatus={onMarkAppointmentStatus}
-            onClearAppointmentStatus={onClearAppointmentStatus}
-            onRescheduleAppointment={onRescheduleAppointment}
-            adsEnabled={adsEnabled}
-            onSignOut={onSignOut}
-            notificationsEnabled={notificationsEnabled}
-            canAskNotifications={canAskNotifications}
-            onRequestNotifications={onRequestNotifications}
-            onToggleNotifications={onToggleNotifications}
-            notificationPermissionGranted={notificationPermissionGranted}
-            onUpgradePlan={onUpgradePlan}
-            userName={userName}
-            userProfession={userProfession}
+            onEditClient={onEditClient} // Passa para as Tabs
           />
         )}
       </Stack.Screen>
-      <Stack.Screen 
-        name="AddClient"
-        options={{ presentation: 'modal' }}
-      >
-        {props => (
-          <AddClientScreen
-            {...props}
-            onAddClient={onAddClient}
-            onUpdateClient={onUpdateClient}
-            defaultClientTerm={clientTerm}
-            planTier={planTier}
-            clientLimit={clientLimit}
-            clientCount={clients.length}
-          />
-        )}
+      <Stack.Screen name="AddClient" options={{ presentation: 'modal' }}>
+        {props => <AddClientScreen {...props} onAddClient={onAddClient} onEditClient={onEditClient} />}
+      </Stack.Screen>
+      <Stack.Screen name="ClientDetail">
+        {props => <ClientDetailScreen {...props} onEditClient={onEditClient} onDeleteClient={onDeleteClient}/>}
       </Stack.Screen>
       <Stack.Screen
         name="PlanDetails"

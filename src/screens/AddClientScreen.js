@@ -59,62 +59,100 @@ const formatTimeLabel = (date) => {
   return `${hours}${TIME_SUFFIX}`;
 };
 
+// --- Helpers de máscara e normalização ---
+const onlyDigits = (str = '') => String(str).replace(/\D+/g, '');
+
+const formatCurrencyBRFromDigits = (digits) => {
+  // digits: string só com números (centavos)
+  const clean = onlyDigits(digits);
+  const int = clean.length ? parseInt(clean, 10) : 0;
+  const cents = (int / 100).toFixed(2); // 1234 -> "12.34"
+  // Converte para formato brasileiro "12,34" com milhares
+  const [intPart, decPart] = cents.split('.');
+  const intPartBR = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `R$ ${intPartBR},${decPart}`;
+};
+
+const unformatCurrencyToNumber = (value) => {
+  // Converte "R$ 1.234,56" -> 1234.56 (Number)
+  if (!value) return 0;
+  const clean = onlyDigits(value);
+  const int = clean.length ? parseInt(clean, 10) : 0;
+  return int / 100;
+};
+
+const formatPhoneBR = (value) => {
+  const d = onlyDigits(value).slice(0, 11); // até 11 dígitos
+  if (d.length <= 2) return d;
+  if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`; // celular 11 dígitos
+};
+
 const AddClientScreen = ({
   navigation,
   route,
   onAddClient,
   onUpdateClient,
+  onEditClient,
   defaultClientTerm = 'Cliente',
   planTier = 'free',
   clientLimit = 3,
   clientCount = 0,
 }) => {
-  const { clientTerm, client } = route.params ?? {};
+  const { clientTerm, clientToEdit } = route.params ?? {};
+  const editingClient = clientToEdit ?? null;
   const term = clientTerm || defaultClientTerm;
-  const isEditing = !!client;
+  const isEditing = !!editingClient;
 
-  const [name, setName] = useState(client?.name ?? '');
-  const [location, setLocation] = useState(client?.location ?? '');
-  const [selectedDays, setSelectedDays] = useState(Array.isArray(client?.days) ? [...client.days] : []);
-  const [dayTimes, setDayTimes] = useState(client?.dayTimes ? { ...client.dayTimes } : {});
-  const initialTimeDate = parseTimeStringToDate(client?.time);
+  const [name, setName] = useState(editingClient?.name ?? '');
+  const [location, setLocation] = useState(editingClient?.location ?? '');
+  const [selectedDays, setSelectedDays] = useState(Array.isArray(editingClient?.days) ? [...editingClient.days] : []);
+  const [dayTimes, setDayTimes] = useState(editingClient?.dayTimes ? { ...editingClient.dayTimes } : {});
+  const initialTimeDate = parseTimeStringToDate(editingClient?.time);
   const [classTimeDate, setClassTimeDate] = useState(initialTimeDate);
-  const [classTimeLabel, setClassTimeLabel] = useState(client?.time ? formatTimeLabel(initialTimeDate) : '');
+  const [classTimeLabel, setClassTimeLabel] = useState(editingClient?.time ? formatTimeLabel(initialTimeDate) : '');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timeBeforePicker, setTimeBeforePicker] = useState(null);
   const [pickerContext, setPickerContext] = useState({ type: 'default', day: null });
   const [monthlyValue, setMonthlyValue] = useState(
-    client?.value !== undefined && client?.value !== null ? String(client.value) : ''
+    editingClient?.value !== undefined && editingClient?.value !== null
+      ? formatCurrencyBRFromDigits(String(Math.round(Number(editingClient.value) * 100)))
+      : ''
   );
-  const [dueDate, setDueDate] = useState(client?.dueDay ?? '');
+  const [dueDate, setDueDate] = useState(editingClient?.dueDay ? String(editingClient.dueDay) : '');
+  const [phone, setPhone] = useState(editingClient?.phone ?? '');
   const [notificationsPaymentOptIn, setNotificationsPaymentOptIn] = useState(
-    client?.notificationsPaymentOptIn !== undefined ? client.notificationsPaymentOptIn : true,
+    editingClient?.notificationsPaymentOptIn !== undefined ? editingClient.notificationsPaymentOptIn : true,
   );
   const [notificationsScheduleOptIn, setNotificationsScheduleOptIn] = useState(
-    client?.notificationsScheduleOptIn !== undefined ? client.notificationsScheduleOptIn : true,
+    editingClient?.notificationsScheduleOptIn !== undefined ? editingClient.notificationsScheduleOptIn : true,
   );
 
   useEffect(() => {
-    if (client) {
-      setName(client.name || '');
-      setLocation(client.location || '');
-      setSelectedDays(Array.isArray(client.days) ? [...client.days] : []);
-      const nextDate = parseTimeStringToDate(client.time || '');
+    if (editingClient) {
+      setName(editingClient.name || '');
+      setLocation(editingClient.location || '');
+      setSelectedDays(Array.isArray(editingClient.days) ? [...editingClient.days] : []);
+      const nextDate = parseTimeStringToDate(editingClient.time || '');
       setClassTimeDate(nextDate);
-      setClassTimeLabel(client.time ? formatTimeLabel(nextDate) : '');
+      setClassTimeLabel(editingClient.time ? formatTimeLabel(nextDate) : '');
       setMonthlyValue(
-        client.value !== undefined && client.value !== null ? String(client.value) : ''
+        editingClient.value !== undefined && editingClient.value !== null
+          ? formatCurrencyBRFromDigits(String(Math.round(Number(editingClient.value) * 100)))
+          : ''
       );
-      setDueDate(client.dueDay || '');
-      setDayTimes(client.dayTimes ? { ...client.dayTimes } : {});
+      setDueDate(editingClient.dueDay !== undefined && editingClient.dueDay !== null ? String(editingClient.dueDay) : '');
+      setDayTimes(editingClient.dayTimes ? { ...editingClient.dayTimes } : {});
       setNotificationsPaymentOptIn(
-        client.notificationsPaymentOptIn !== undefined ? client.notificationsPaymentOptIn : true,
+        editingClient.notificationsPaymentOptIn !== undefined ? editingClient.notificationsPaymentOptIn : true,
       );
       setNotificationsScheduleOptIn(
-        client.notificationsScheduleOptIn !== undefined ? client.notificationsScheduleOptIn : true,
+        editingClient.notificationsScheduleOptIn !== undefined ? editingClient.notificationsScheduleOptIn : true,
       );
+      setPhone(editingClient.phone || '');
     }
-  }, [client]);
+  }, [editingClient, clientToEdit]);
 
   const toggleDay = (day) => {
     if (selectedDays.includes(day)) {
@@ -256,25 +294,45 @@ const AddClientScreen = ({
       return;
     }
 
-    const sanitizedValue = String(monthlyValue).trim();
-    if (!sanitizedValue) {
-      Alert.alert('Campo obrigatório', 'Informe o valor mensal.');
+    const currencyNumber = unformatCurrencyToNumber(monthlyValue);
+    if (!Number.isFinite(currencyNumber) || currencyNumber <= 0) {
+      Alert.alert('Valor inválido', 'Informe um valor mensal válido.');
       return;
     }
 
-    const numericValue = Number(sanitizedValue.replace(',', '.'));
-    if (!Number.isFinite(numericValue) || numericValue < 0) {
-      Alert.alert('Valor inválido', 'Informe um valor mensal válido.');
+    const due = parseInt(onlyDigits(dueDate), 10);
+    if (!Number.isFinite(due) || due < 1 || due > 31) {
+      Alert.alert('Data de pagamento inválida', 'Informe um dia entre 1 e 31.');
+      return;
+    }
+
+    const phoneDigits = onlyDigits(phone);
+    if (!phoneDigits || (phoneDigits.length !== 10 && phoneDigits.length !== 11)) {
+      Alert.alert('Telefone obrigatório', 'Informe um telefone válido com DDD.');
+      return;
+    }
+    // Validação de DDD brasileiro e regra simples de celular (11 dígitos começa com 9)
+    const validDDDs = new Set(['11','12','13','14','15','16','17','18','19','21','22','24','27','28','31','32','33','34','35','37','38','41','42','43','44','45','46','47','48','49','51','53','54','55','61','62','63','64','65','66','67','68','69','71','73','74','75','77','79','81','82','83','84','85','86','87','88','89','91','92','93','94','95','96','97','98','99']);
+    const ddd = phoneDigits.slice(0, 2);
+    if (!validDDDs.has(ddd)) {
+      Alert.alert('DDD inválido', 'Informe um DDD válido do Brasil.');
+      return;
+    }
+    if (phoneDigits.length === 11 && phoneDigits[2] !== '9') {
+      Alert.alert('Telefone inválido', 'Celular com 11 dígitos deve começar com 9.');
       return;
     }
 
     const newClientData = {
       name,
       location,
+      phone,
+      phoneRaw: phoneDigits,
       days: selectedDays,
       time: classTimeLabel,
-      value: sanitizedValue,
-      dueDay: dueDate,
+      value: currencyNumber,
+      valueFormatted: monthlyValue,
+      dueDay: due,
       dayTimes: selectedDays.reduce((acc, day) => {
         if (dayTimes[day]) {
           acc[day] = dayTimes[day];
@@ -285,7 +343,11 @@ const AddClientScreen = ({
       notificationsScheduleOptIn,
     };
     if (isEditing) {
-      onUpdateClient?.(client.id, newClientData);
+      if (onEditClient && editingClient?.id) {
+        onEditClient({ id: editingClient.id, ...editingClient, ...newClientData });
+      } else if (onUpdateClient && editingClient?.id) {
+        onUpdateClient(editingClient.id, newClientData);
+      }
       navigation.goBack();
       return;
     }
@@ -330,6 +392,16 @@ const AddClientScreen = ({
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Local de Atendimento</Text>
           <TextInput style={styles.input} value={location} onChangeText={setLocation} />
+        </View>
+        <View style={styles.inputGroup}>
+        <Text style={styles.label}>Telefone *</Text>
+        <TextInput
+          style={styles.input}
+          value={phone}
+          onChangeText={(text) => setPhone(formatPhoneBR(text))}
+          keyboardType="phone-pad"
+          placeholder="(99) 99999-9999"
+        />
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Dias da Semana</Text>
@@ -413,13 +485,32 @@ const AddClientScreen = ({
         ) : null}
         <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
           <Text style={styles.label}>Valor Mensal</Text>
-          <TextInput style={styles.input} value={monthlyValue} onChangeText={setMonthlyValue} keyboardType="numeric" placeholder="R$"/>
-        </View>
+          <TextInput
+            style={styles.input}
+            value={monthlyValue}
+            onChangeText={(text) => {
+              const digits = onlyDigits(text);
+              const formatted = formatCurrencyBRFromDigits(digits);
+              setMonthlyValue(formatted);
+            }}
+            keyboardType="numeric"
+            placeholder="R$ 0,00"
+            />
+          </View>
         </View>
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Data de Pagamento</Text>
-          <TextInput style={styles.input} value={dueDate} onChangeText={setDueDate} keyboardType="numeric" placeholder="Dia"/>
-        </View>
+          <TextInput
+            style={styles.input}
+            value={dueDate}
+            onChangeText={(text) => {
+              const digits = onlyDigits(text).slice(0, 2);
+              setDueDate(digits);
+            }}
+            keyboardType="numeric"
+            placeholder="Dia (1-31)"
+            />
+          </View>
         <View style={[styles.inputGroup, styles.switchGroup]}>
           <Text style={styles.switchLabel}>Notificar pagamento</Text>
           <Switch
