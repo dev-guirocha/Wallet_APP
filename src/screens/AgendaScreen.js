@@ -1,6 +1,6 @@
 // /src/screens/AgendaScreen.js
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
@@ -8,48 +8,36 @@ import { Feather as Icon } from '@expo/vector-icons';
 
 import { getDateKey } from '../utils/dateUtils';
 import { getAppointmentsForDate } from '../utils/schedule';
+import { useClientStore } from '../store/useClientStore';
+import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
-// ... (LocaleConfig e COLORS continuam os mesmos)
 LocaleConfig.locales['pt-br'] = {
   monthNames: ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'],
   monthNamesShort: ['Jan.','Fev.','Mar','Abr','Mai','Jun','Jul.','Ago','Set.','Out.','Nov.','Dez.'],
   dayNames: ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'],
   dayNamesShort: ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'],
-  today: 'Hoje'
+  today: 'Hoje',
 };
 LocaleConfig.defaultLocale = 'pt-br';
 
-const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
-  accent: '#5D5D5D',
-};
-
-const AgendaScreen = ({ clients, scheduleOverrides = {} }) => {
+const AgendaScreen = ({ scheduleOverrides = {} }) => {
+  const clients = useClientStore((state) => state.clients);
   const [selectedDate, setSelectedDate] = useState('');
 
-  // =======================================================
-  // TRANSFORMA A LISTA DE CLIENTES EM DADOS PARA O CALENDÁRIO
-  // =======================================================
   const appointmentsData = useMemo(() => {
     const data = {};
     const today = new Date();
-    // Olhamos para os próximos 90 dias
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 90; i += 1) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
       const appointmentsForDay = getAppointmentsForDate({ date, clients, overrides: scheduleOverrides });
-
       if (appointmentsForDay.length > 0) {
-        const dateString = getDateKey(date);
-        data[dateString] = appointmentsForDay;
+        data[getDateKey(date)] = appointmentsForDay;
       }
     }
     return data;
   }, [clients, scheduleOverrides]);
-  // =======================================================
-  
+
   const selectedAppointments = appointmentsData[selectedDate] || [];
   const todayString = new Date().toISOString().split('T')[0];
 
@@ -58,143 +46,112 @@ const AgendaScreen = ({ clients, scheduleOverrides = {} }) => {
       <View style={styles.header}>
         <Text style={styles.title}>Agenda</Text>
       </View>
-      <Calendar
-        current={todayString}
-        onDayPress={(day) => setSelectedDate(day.dateString)}
-        markedDates={{
-          ...Object.keys(appointmentsData).reduce((obj, date) => {
-            obj[date] = { marked: true, dotColor: COLORS.text };
-            return obj;
-          }, {}),
-          [selectedDate]: { selected: true, selectedColor: COLORS.text, marked: true, dotColor: 'white' },
-          [todayString]: { today: true }
-        }}
-        theme={{
-          backgroundColor: COLORS.background,
-          calendarBackground: COLORS.background,
-          textSectionTitleColor: COLORS.accent,
-          selectedDayBackgroundColor: COLORS.text,
-          selectedDayTextColor: '#ffffff',
-          todayTextColor: COLORS.text,
-          dayTextColor: COLORS.text,
-          textDisabledColor: COLORS.placeholder,
-          arrowColor: COLORS.text,
-          monthTextColor: COLORS.text,
-          textDayFontFamily: 'System',
-          textMonthFontFamily: 'System',
-          textDayHeaderFontFamily: 'System',
-          textDayFontWeight: '300',
-          textMonthFontWeight: 'bold',
-          textDayHeaderFontWeight: '300',
-          textDayFontSize: 16,
-          textMonthFontSize: 18,
-          textDayHeaderFontSize: 14,
-        }}
-      />
-      
-      {selectedDate ? (
-        <ScrollView style={styles.appointmentsList}>
-          {selectedAppointments.length > 0 ? (
-            selectedAppointments.map(app => (
-              <View key={app.id} style={styles.appointmentCard}>
-                <View style={styles.appointmentHeader}>
-                  <View style={styles.appointmentTitleBlock}>
-                    <Text style={styles.appointmentName}>{app.name}</Text>
-                    {app.status && app.status !== 'scheduled' ? (
-                      <View
-                        style={[
-                          styles.statusBadge,
-                          app.status === 'done' ? styles.statusBadgeDone : styles.statusBadgePending,
-                        ]}
-                      >
-                        <Text style={styles.statusBadgeText}>
-                          {app.status === 'done'
-                            ? 'Concluído'
-                            : app.status === 'rescheduled'
-                              ? 'Adiado'
-                              : app.status}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <View style={styles.timePill}>
-                    <Icon name="clock" size={16} color="#1E1E1E" />
-                    <Text style={styles.timePillText}>{app.time || '--:--'}</Text>
-                  </View>
-                </View>
 
-                <View style={styles.appointmentBody}>
-                  <View style={styles.infoRow}>
-                    <Icon name="map-pin" size={16} color="rgba(30,30,30,0.6)" />
-                    <Text style={styles.appointmentLocation}>{app.location}</Text>
+      <View style={styles.calendarContainer}>
+        <Calendar
+          current={todayString}
+          onDayPress={(day) => setSelectedDate(day.dateString)}
+          markedDates={{
+            ...Object.keys(appointmentsData).reduce((obj, date) => {
+              obj[date] = { marked: true, dotColor: COLORS.primary };
+              return obj;
+            }, {}),
+            [selectedDate]: { selected: true, selectedColor: COLORS.primary, marked: true, dotColor: 'white' },
+            [todayString]: { today: true, todayTextColor: COLORS.primary },
+          }}
+          theme={{
+            backgroundColor: COLORS.surface,
+            calendarBackground: COLORS.surface,
+            textSectionTitleColor: COLORS.textSecondary,
+            selectedDayBackgroundColor: COLORS.primary,
+            selectedDayTextColor: '#ffffff',
+            todayTextColor: COLORS.primary,
+            dayTextColor: COLORS.textPrimary,
+            textDisabledColor: '#D1D5DB',
+            arrowColor: COLORS.primary,
+            monthTextColor: COLORS.textPrimary,
+            textDayFontWeight: '500',
+            textMonthFontWeight: 'bold',
+            textDayHeaderFontWeight: '500',
+            textDayFontSize: 14,
+            textMonthFontSize: 16,
+            textDayHeaderFontSize: 12,
+          }}
+          style={styles.calendar}
+        />
+      </View>
+
+      <ScrollView style={styles.listContainer}>
+        {selectedDate ? (
+          <>
+            <Text style={styles.dateHeader}>
+              {new Date(`${selectedDate}T12:00:00`).toLocaleDateString('pt-BR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })}
+            </Text>
+            {selectedAppointments.length > 0 ? (
+              selectedAppointments.map((appointment) => (
+                <View key={appointment.id} style={styles.card}>
+                  <View style={styles.timeBlock}>
+                    <Text style={styles.timeText}>{appointment.time}</Text>
                   </View>
-                  {app.note ? (
-                    <View style={[styles.infoRow, styles.noteRow]}>
-                      <Icon name="clipboard" size={16} color="rgba(30,30,30,0.6)" />
-                      <Text style={styles.appointmentNote}>{app.note}</Text>
+                  <View style={styles.infoBlock}>
+                    <Text style={styles.clientName}>{appointment.name}</Text>
+                    <View style={styles.row}>
+                      <Icon name="map-pin" size={12} color={COLORS.textSecondary} />
+                      <Text style={styles.location}>{appointment.location}</Text>
                     </View>
-                  ) : null}
+                  </View>
                 </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.noAppointmentsText}>Nenhum compromisso para este dia.</Text>
-          )}
-        </ScrollView>
-      ) : null}
+              ))
+            ) : (
+              <Text style={styles.emptyText}>Nenhum compromisso.</Text>
+            )}
+          </>
+        ) : (
+          <Text style={styles.placeholderText}>Selecione um dia no calendario.</Text>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
-// ... Estilos (nenhuma mudança aqui)
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  header: { paddingHorizontal: 30, paddingTop: 30, paddingBottom: 15 },
-  title: { fontSize: 28, fontWeight: 'bold', color: COLORS.text },
-  appointmentsList: { marginTop: 20, flex: 1 },
-  appointmentCard: {
-    marginHorizontal: 30,
-    marginBottom: 16,
-    backgroundColor: COLORS.background,
-    borderRadius: 18,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+  header: { padding: 24, paddingBottom: 10 },
+  title: { ...TYPOGRAPHY.display, color: COLORS.textPrimary },
+  calendarContainer: {
+    marginHorizontal: 24,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.06)',
+    borderColor: COLORS.border,
+    ...SHADOWS.small,
   },
-  appointmentHeader: {
+  calendar: { borderRadius: 16, backgroundColor: COLORS.surface },
+  listContainer: { flex: 1, paddingHorizontal: 24, marginTop: 20 },
+  dateHeader: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 12, textTransform: 'capitalize' },
+  card: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...SHADOWS.small,
   },
-  appointmentTitleBlock: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
-  appointmentName: { fontSize: 16, fontWeight: '700', color: COLORS.text, flexShrink: 1 },
-  statusBadge: { marginLeft: 10, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  statusBadgeDone: { backgroundColor: '#5CB85C' },
-  statusBadgePending: { backgroundColor: '#F0AD4E' },
-  statusBadgeText: { color: COLORS.background, fontSize: 11, fontWeight: '700' },
-  timePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: 'rgba(30,30,30,0.05)',
-  },
-  timePillText: { marginLeft: 6, fontSize: 13, fontWeight: '600', color: COLORS.text },
-  appointmentBody: { marginTop: 4 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  appointmentLocation: { marginLeft: 8, fontSize: 13, color: COLORS.accent, flexShrink: 1 },
-  appointmentNote: { marginLeft: 8, fontSize: 13, color: COLORS.placeholder, flexShrink: 1 },
-  noteRow: { marginBottom: 0 },
-  noAppointmentsText: { color: COLORS.placeholder, fontStyle: 'italic', paddingHorizontal: 30, textAlign: 'center', marginTop: 20 },
+  timeBlock: { width: 50, justifyContent: 'center', borderRightWidth: 1, borderRightColor: COLORS.border, marginRight: 12 },
+  timeText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
+  infoBlock: { flex: 1, justifyContent: 'center' },
+  clientName: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary, marginBottom: 4 },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  location: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginLeft: 4 },
+  emptyText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, textAlign: 'center', marginTop: 20 },
+  placeholderText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, textAlign: 'center', marginTop: 40 },
 });
-
 
 export default AgendaScreen;

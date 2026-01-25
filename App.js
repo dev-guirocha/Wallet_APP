@@ -1,198 +1,107 @@
 // App.js
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, StatusBar } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import 'react-native-get-random-values';
-import { v4 as uuidv4 } from 'uuid';
 
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import AuthScreen from './src/screens/AuthScreen';
-import ProfessionScreen from './src/screens/ProfessionScreen';
+import ProfileSetupScreen from './src/screens/ProfileSetupScreen';
 import AppNavigator from './AppNavigator';
+import { COLORS } from './src/constants/theme';
 
-const CLIENTS_STORAGE_KEY = '@WalletA:clients';
-// Função para obter a chave do mês atual no formato 'AAAA-MM'
-const getCurrentMonthKey = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  return `${year}-${month}`;
-};
-
-const CLIENT_TERM_KEY = '@WalletA:clientTerm';
 const APP_STATE_KEY = '@WalletA:appState';
 
-const INITIAL_CLIENTS = [
-  {
-    id: '1',
-    name: 'Guilherme (Exemplo)',
-    location: 'Condominio Caete Serigy',
-    days: ['Seg', 'Qua', 'Sex'],
-    time: '15:00',
-    value: '500',
-    dueDay: '25',
-    phone: '79998357214',
-    status: 'Vence dia 25',
-    statusColor: '#F0AD4E',
-    paid: false,
-  },
-];
-
 const App = () => {
-  const [appState, setAppState] = useState('welcome');
-  const [clientTerm, setClientTerm] = useState('Cliente');
-  const [clients, setClients] = useState([]);
+  const [appState, setAppState] = useState('loading');
+  const [planTier, setPlanTier] = useState('free');
+  const [pendingProfile, setPendingProfile] = useState(null);
 
-  // =======================================================
-  // CHECKPOINT 7: ESTADO DE CARREGAMENTO
-  // =======================================================
-  const [isLoading, setIsLoading] = useState(true);
-  // =======================================================
-
-  // =======================================================
-  // CHECKPOINT 7: CARREGAR DADOS AO INICIAR O APP
-  // =======================================================
   useEffect(() => {
-    const loadAll = async () => {
+    const initApp = async () => {
       try {
-        const [savedClients, savedTerm, savedAppState] = await Promise.all([
-          AsyncStorage.getItem(CLIENTS_STORAGE_KEY),
-          AsyncStorage.getItem(CLIENT_TERM_KEY),
-          AsyncStorage.getItem(APP_STATE_KEY),
-        ]);
-
-        if (savedClients !== null) {
-          setClients(JSON.parse(savedClients));
+        const savedAppState = await AsyncStorage.getItem(APP_STATE_KEY);
+        if (savedAppState === 'profession') {
+          setAppState('profile');
         } else {
-          setClients(INITIAL_CLIENTS);
+          setAppState(savedAppState || 'welcome');
         }
-
-        if (savedTerm) {
-          try {
-            const maybeObj = JSON.parse(savedTerm);
-            setClientTerm(
-              typeof maybeObj === 'string'
-                ? maybeObj
-                : (maybeObj?.label || maybeObj?.value || 'Cliente')
-            );
-          } catch {
-            setClientTerm(savedTerm);
-          }
-        }
-        if (savedAppState) setAppState(savedAppState);
       } catch (e) {
-        console.error('Falha ao carregar os dados.', e);
-      } finally {
-        setIsLoading(false);
+        console.error('Erro na inicialização', e);
+        setAppState('welcome');
       }
     };
 
-    loadAll();
+    initApp();
   }, []);
-  // =======================================================
 
-  // =======================================================
-  // CHECKPOINT 7: SALVAR DADOS A CADA ALTERAÇÃO
-  // =======================================================
-  useEffect(() => {
-    const saveClients = async () => {
-      try {
-        if (!isLoading) {
-          await AsyncStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
-        }
-      } catch (e) {
-        console.error('Falha ao salvar os clientes.', e);
-      }
-    };
-
-    saveClients();
-  }, [clients, isLoading]);
-  // =======================================================
-
-  useEffect(() => {
-    const saveMeta = async () => {
-      try {
-        if (!isLoading) {
-          await Promise.all([
-            AsyncStorage.setItem(CLIENT_TERM_KEY, String(clientTerm ?? 'Cliente')),
-            AsyncStorage.setItem(APP_STATE_KEY, String(appState ?? 'welcome')),
-          ]);
-        }
-      } catch (e) {
-        console.error('Falha ao salvar metadados.', e);
-      }
-    };
-    saveMeta();
-  }, [clientTerm, appState, isLoading]);
-
-  // ===== LÓGICA DE CLIENTES (simples) =====
-  const handleAddClient = (newClientData) => {
-    const newClient = {
-      id: uuidv4(),
-      ...newClientData,
-      payments: {}, // histórico mensal
-    };
-    setClients((prev) => [...prev, newClient]);
+  const persistAppState = async (nextState) => {
+    setAppState(nextState);
+    try {
+      await AsyncStorage.setItem(APP_STATE_KEY, nextState);
+    } catch (e) {
+      // ignore persistence errors for state flow
+    }
   };
 
-  const handleEditClient = (updatedClientData) => {
-    setClients((prev) =>
-      prev.map((c) => (c.id === updatedClientData.id ? { ...c, ...updatedClientData } : c))
-    );
+  const handleProfileComplete = () => {
+    setPendingProfile(null);
+    persistAppState('main');
   };
 
-  const handleToggleClientPayment = (clientId) => {
-    const currentMonthKey = getCurrentMonthKey();
-    setClients((prev) =>
-      prev.map((c) => {
-        if (c.id !== clientId) return c;
-        const newPayments = { ...(c.payments || {}) };
-        const currentStatus = newPayments[currentMonthKey];
-        newPayments[currentMonthKey] = currentStatus === 'pago' ? 'pendente' : 'pago';
-        return { ...c, payments: newPayments };
-      })
-    );
+  const handleUpgradePlan = () => {
+    setPlanTier('pro');
+    alert('Plano atualizado para PRO (Simulação)');
   };
 
-  const handleDeleteClient = (clientId) => {
-    setClients((prev) => prev.filter((c) => c.id !== clientId));
+  const handleSignOut = () => {
+    persistAppState('welcome');
   };
 
-  const handleProfessionComplete = (term) => {
-    const text = typeof term === 'string' ? term : term?.label || term?.value || 'Cliente';
-    setClientTerm(text);
-    setAppState('main');
-  };
-
-  // Tela de loading
-  if (isLoading) {
+  if (appState === 'loading') {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E4E2DD' }}>
-        <ActivityIndicator size="large" color="#1E1E1E" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
   }
 
-  // Fluxo de configuração (bem simples)
   if (appState !== 'main') {
-    if (appState === 'welcome') return <WelcomeScreen onContinue={() => setAppState('onboarding')} />;
-    if (appState === 'onboarding') return <OnboardingScreen onComplete={() => setAppState('auth')} />;
-    if (appState === 'auth') return <AuthScreen onLoginSuccess={() => setAppState('profession')} />;
-    if (appState === 'profession') return <ProfessionScreen onComplete={handleProfessionComplete} />;
+    if (appState === 'welcome') {
+      return <WelcomeScreen onContinue={() => persistAppState('onboarding')} />;
+    }
+    if (appState === 'onboarding') {
+      return <OnboardingScreen onComplete={() => persistAppState('auth')} />;
+    }
+    if (appState === 'auth') {
+      return (
+        <AuthScreen
+          onLoginSuccess={(profile) => {
+            setPendingProfile(profile || null);
+            persistAppState('profile');
+          }}
+        />
+      );
+    }
+    if (appState === 'profile') {
+      return (
+        <ProfileSetupScreen
+          initialProfile={pendingProfile}
+          onComplete={handleProfileComplete}
+        />
+      );
+    }
   }
 
   return (
     <NavigationContainer>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       <AppNavigator
-        clientTerm={clientTerm}
-        clients={clients}
-        onAddClient={handleAddClient}
-        onTogglePayment={handleToggleClientPayment}
-        onDeleteClient={handleDeleteClient}
-        onEditClient={handleEditClient}
+        planTier={planTier}
+        onUpgradePlan={handleUpgradePlan}
+        onSignOut={handleSignOut}
       />
     </NavigationContainer>
   );

@@ -3,10 +3,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
+  background: THEME.background,
+  text: THEME.textPrimary,
+  secondary: THEME.textSecondary,
+  primary: THEME.primary,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 const WelcomeScreen = ({ onContinue }) => {
@@ -55,34 +59,28 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   title: {
-    fontSize: 26,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.title,
     color: COLORS.text,
     textAlign: 'center',
     marginBottom: 16,
-    fontFamily: 'System',
   },
   description: {
-    fontSize: 17,
-    color: COLORS.text,
+    ...TYPOGRAPHY.body,
+    color: COLORS.secondary,
     textAlign: 'center',
     lineHeight: 25,
-    opacity: 0.7,
-    fontFamily: 'System',
   },
   continueButton: {
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
     paddingVertical: 16,
     width: '100%',
     borderRadius: 30,
     marginBottom: 20,
   },
   continueButtonText: {
-    color: COLORS.background,
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.button,
+    color: COLORS.textOnPrimary,
     textAlign: 'center',
-    fontFamily: 'System',
   },
 });
 

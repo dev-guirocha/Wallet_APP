@@ -2,11 +2,16 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
+  background: THEME.background,
+  surface: THEME.surface,
+  text: THEME.textPrimary,
+  placeholder: THEME.textSecondary,
+  primary: THEME.primary,
+  border: THEME.border,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 // Lista de profissões da área da saúde (em minúsculas e sem acentos para facilitar a comparação)
@@ -102,45 +107,41 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.display,
     color: COLORS.text,
     textAlign: 'center',
     marginBottom: 16,
-    fontFamily: 'System',
   },
   description: {
-    fontSize: 17,
-    color: COLORS.text,
-    opacity: 0.7,
+    ...TYPOGRAPHY.body,
+    color: COLORS.placeholder,
     textAlign: 'center',
     marginBottom: 40,
-    fontFamily: 'System',
   },
   input: {
     width: '100%',
-    backgroundColor: 'rgba(30, 30, 30, 0.05)',
+    backgroundColor: COLORS.surface,
     height: 50,
     borderRadius: 10,
     paddingHorizontal: 15,
-    fontSize: 16,
+    ...TYPOGRAPHY.body,
     color: COLORS.text,
     marginBottom: 15,
     fontFamily: 'System',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   primaryButton: {
     width: '100%',
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
     paddingVertical: 16,
     borderRadius: 30,
     marginBottom: 20,
   },
   primaryButtonText: {
-    color: COLORS.background,
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.button,
+    color: COLORS.textOnPrimary,
     textAlign: 'center',
-    fontFamily: 'System',
   },
 });
 

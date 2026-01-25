@@ -2,12 +2,16 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  accent: '#5D5D5D',
-  highlight: '#1E1E1E',
+  background: THEME.background,
+  surface: THEME.surface,
+  text: THEME.textPrimary,
+  accent: THEME.textSecondary,
+  highlight: THEME.primary,
+  border: THEME.border,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 const FEATURES = [
@@ -81,24 +85,26 @@ const PlanDetailsScreen = ({ navigation, onUpgradePlan, planTier = 'free' }) => 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { padding: 24, paddingBottom: 60 },
-  title: { fontSize: 28, fontWeight: '700', color: COLORS.text },
-  subtitle: { fontSize: 15, color: COLORS.accent, marginTop: 8, marginBottom: 20 },
+  title: { ...TYPOGRAPHY.display, color: COLORS.text },
+  subtitle: { ...TYPOGRAPHY.body, color: COLORS.accent, marginTop: 8, marginBottom: 20 },
   priceCard: {
-    backgroundColor: 'rgba(30,30,30,0.05)',
+    backgroundColor: COLORS.surface,
     borderRadius: 20,
     paddingVertical: 20,
     paddingHorizontal: 18,
     alignItems: 'center',
     marginBottom: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  price: { fontSize: 36, fontWeight: '700', color: COLORS.text },
-  priceSuffix: { fontSize: 16, color: COLORS.accent },
-  priceInfo: { fontSize: 13, color: COLORS.accent, marginTop: 6 },
+  price: { ...TYPOGRAPHY.hero, color: COLORS.text },
+  priceSuffix: { ...TYPOGRAPHY.subtitle, color: COLORS.accent },
+  priceInfo: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginTop: 6 },
   featureCard: {
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.08)',
+    borderColor: COLORS.border,
     padding: 18,
     marginBottom: 20,
     shadowColor: '#000',
@@ -107,17 +113,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 1,
   },
-  featureTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 12 },
+  featureTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.text, marginBottom: 12 },
   featureRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  featureText: { marginLeft: 12, color: COLORS.accent, fontSize: 14, flexShrink: 1 },
+  featureText: { marginLeft: 12, color: COLORS.accent, ...TYPOGRAPHY.body, flexShrink: 1 },
   supportCard: {
-    backgroundColor: 'rgba(30,30,30,0.05)',
+    backgroundColor: COLORS.surface,
     borderRadius: 18,
     padding: 18,
     marginBottom: 30,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  supportTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
-  supportText: { fontSize: 14, color: COLORS.accent, lineHeight: 20 },
+  supportTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.text, marginBottom: 8 },
+  supportText: { ...TYPOGRAPHY.body, color: COLORS.accent, lineHeight: 20 },
   ctaButton: {
     backgroundColor: COLORS.highlight,
     borderRadius: 18,
@@ -125,14 +133,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 14,
   },
-  ctaButtonDisabled: { backgroundColor: 'rgba(30,30,30,0.2)' },
-  ctaButtonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  ctaButtonDisabled: { backgroundColor: 'rgba(26,32,44,0.2)' },
+  ctaButtonText: { ...TYPOGRAPHY.button, color: COLORS.textOnPrimary },
   ctaButtonTextDisabled: { color: 'rgba(255,255,255,0.7)' },
   secondaryButton: {
     alignItems: 'center',
     paddingVertical: 14,
   },
-  secondaryButtonText: { fontSize: 14, color: COLORS.accent },
+  secondaryButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.accent },
 });
 
 export default PlanDetailsScreen;

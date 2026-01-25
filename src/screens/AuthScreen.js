@@ -4,11 +4,16 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
 import { Feather as Icon, FontAwesome } from '@expo/vector-icons';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
+  background: THEME.background,
+  surface: THEME.surface,
+  text: THEME.textPrimary,
+  placeholder: THEME.textSecondary,
+  primary: THEME.primary,
+  border: THEME.border,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 const AuthScreen = ({ onLoginSuccess }) => {
@@ -178,22 +183,22 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.display,
     color: COLORS.text,
     marginBottom: 30,
-    fontFamily: 'System',
   },
   input: {
     width: '100%',
-    backgroundColor: 'rgba(30, 30, 30, 0.05)',
+    backgroundColor: COLORS.surface,
     height: 50,
     borderRadius: 10,
     paddingHorizontal: 15,
-    fontSize: 16,
+    ...TYPOGRAPHY.body,
     color: COLORS.text,
     marginBottom: 15,
     fontFamily: 'System',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   // Estilo para o novo botão de teste
   testButton: {
@@ -201,31 +206,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10, // Menor que o principal
     marginBottom: 15,
   },
-  testButtonText: {
-    color: COLORS.placeholder,
-    fontSize: 14,
-    textAlign: 'center',
-    fontFamily: 'System',
-  },
+  testButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.placeholder, textAlign: 'center' },
   primaryButton: {
     width: '100%',
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
     paddingVertical: 16,
     borderRadius: 30,
     // Removi a margem superior para o botão de teste controlar o espaçamento
   },
   primaryButtonText: {
-    color: COLORS.background,
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.button,
+    color: COLORS.textOnPrimary,
     textAlign: 'center',
-    fontFamily: 'System',
   },
-  dividerText: {
-    color: COLORS.placeholder,
-    marginVertical: 25,
-    fontFamily: 'System',
-  },
+  dividerText: { ...TYPOGRAPHY.caption, color: COLORS.placeholder, marginVertical: 25 },
   socialLoginContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -239,17 +233,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 15,
     borderWidth: 1,
-    borderColor: 'rgba(30, 30, 30, 0.1)',
+    borderColor: COLORS.border,
   },
   toggleButton: {
     padding: 20,
     paddingBottom: 30,
   },
   toggleText: {
+    ...TYPOGRAPHY.body,
     color: COLORS.text,
     textAlign: 'center',
-    fontSize: 16,
-    fontFamily: 'System',
   },
   toggleLink: {
     fontWeight: 'bold',

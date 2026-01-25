@@ -32,6 +32,8 @@ export const getReadableMonth = (monthKey) => {
 export const formatCurrency = (value) => {
   const numericValue = Number(value || 0);
   return numericValue.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

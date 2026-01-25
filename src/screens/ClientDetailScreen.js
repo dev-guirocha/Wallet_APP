@@ -5,13 +5,22 @@ import { Feather as Icon } from '@expo/vector-icons';
 
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
+import { useClientStore } from '../store/useClientStore';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
-  accent: '#8A8A8A',
-  cardBackground: '#DAD8D3',
+  background: THEME.background,
+  surface: THEME.surface,
+  text: THEME.textPrimary,
+  placeholder: THEME.textSecondary,
+  accent: THEME.textSecondary,
+  border: THEME.border,
+  cardBackground: THEME.surface,
+  danger: THEME.danger,
+  success: THEME.success,
+  warning: THEME.warning,
+  primary: THEME.primary,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 // Helpers
@@ -19,6 +28,13 @@ const onlyDigits = (str = '') => String(str).replace(/\D+/g, '');
 const formatCurrencyBR = (value) => {
   const num = Number(value) || 0;
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num);
+};
+
+const normalizePaymentStatus = (entry) => {
+  if (!entry) return 'pending';
+  const rawStatus = typeof entry === 'string' ? entry : entry?.status;
+  if (!rawStatus) return 'pending';
+  return rawStatus === 'paid' || rawStatus === 'pago' ? 'paid' : 'pending';
 };
 
 const getCurrentMonthKey = () => new Date().toISOString().slice(0, 7); // 'AAAA-MM'
@@ -88,36 +104,56 @@ const getNextAppointment = (client) => {
 };
 
 
-const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient }) => {
-  // Recebe os dados do paciente passados pela navegação
-  const { client } = route.params;
+const ClientDetailScreen = ({ route, navigation }) => {
+  const clientTerm = useClientStore((state) => state.clientTerm);
+  const deleteClient = useClientStore((state) => state.deleteClient);
+  const { client, clientId } = route.params || {};
+  const resolvedClient = useClientStore((state) =>
+    state.clients.find((item) => item.id === (clientId || client?.id))
+  );
+  const activeClient = resolvedClient || client;
+
+  if (!activeClient) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Icon name="arrow-left" size={28} color={COLORS.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Cliente não encontrado</Text>
+          <View style={{ width: 28 }} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const currentMonthKey = getCurrentMonthKey();
-  const isPaidThisMonth = client?.payments?.[currentMonthKey] === 'pago';
+  const isPaidThisMonth = normalizePaymentStatus(activeClient?.payments?.[currentMonthKey]) === 'paid';
   const currentStatusText = isPaidThisMonth ? 'Pago este mês' : 'Pendente';
-  const currentStatusColor = isPaidThisMonth ? '#5CB85C' : '#F0AD4E';
+  const currentStatusColor = isPaidThisMonth ? COLORS.success : COLORS.warning;
 
   // =======================================================
   // CHECKPOINT 8: HISTÓRICO DE PAGAMENTOS REAL
   // =======================================================
   const paymentHistory = useMemo(() => {
-    if (!client?.payments) return [];
+    if (!activeClient?.payments) return [];
 
-    return Object.entries(client.payments)
-      .map(([monthKey, status]) => {
+    return Object.entries(activeClient.payments)
+      .map(([monthKey, entry]) => {
         const [year, month] = monthKey.split('-');
         const monthName = new Date(Number(year), Number(month) - 1).toLocaleString('pt-BR', { month: 'long' });
         const formattedMonth = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)}/${String(year).slice(2)}`;
+        const status = normalizePaymentStatus(entry);
         return {
           month: formattedMonth,
-          status: status === 'pago' ? 'Pago' : 'Pendente',
-          color: status === 'pago' ? '#5CB85C' : '#F0AD4E',
-          amount: Number(client.value) || 0,
-          amountLabel: formatCurrencyBR(client.value),
+          status: status === 'paid' ? 'Pago' : 'Pendente',
+          color: status === 'paid' ? COLORS.success : COLORS.warning,
+          amount: Number(activeClient.value) || 0,
+          amountLabel: formatCurrencyBR(activeClient.value),
         };
       })
       .reverse();
-  }, [client?.payments]);
+  }, [activeClient?.payments, activeClient?.value]);
   // =======================================================
 
   const [historyFilter, setHistoryFilter] = useState('all'); // 'all' | 'paid' | 'pending'
@@ -127,25 +163,25 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
     return paymentHistory;
   }, [paymentHistory, historyFilter]);
 
-  const phoneDisplay = client.phone || 'Não informado';
-  const currencyDisplay = client.valueFormatted ?? formatCurrencyBR(client.value);
-  const daysArray = Array.isArray(client.days) ? client.days : [];
+  const phoneDisplay = activeClient.phone || 'Não informado';
+  const currencyDisplay = activeClient.valueFormatted ?? formatCurrencyBR(activeClient.value);
+  const daysArray = Array.isArray(activeClient.days) ? activeClient.days : [];
   const daysDisplay = daysArray.length ? daysArray.join(', ') : 'Não informado';
-  const nextAppt = getNextAppointment(client);
+  const nextAppt = getNextAppointment(activeClient || {});
   const timeDisplay = nextAppt.time || 'Não informado';
 
 
   const handleWhatsAppConfirm = async () => {
-    if (!client.phone) return;
-    const digits = onlyDigits(client.phone);
+    if (!activeClient?.phone) return;
+    const digits = onlyDigits(activeClient.phone);
     if (!digits) return;
     const dia = nextAppt.label || 'hoje';
-    const msg = `Olá, ${client.name}!\n\nConfirmando seu horário de ${dia} às ${timeDisplay}.\n\nSe precisar reagendar, por favor me avise. Obrigado!`;
+    const msg = `Olá, ${activeClient.name}!\n\nConfirmando seu horário de ${dia} às ${timeDisplay}.\n\nSe precisar reagendar, por favor me avise. Obrigado!`;
     await openWhatsApp(digits, msg);
   };
 
   const handleGenerateReceipt = async () => {
-    const valor = client.valueFormatted ?? formatCurrencyBR(client.value);
+    const valor = activeClient?.valueFormatted ?? formatCurrencyBR(activeClient?.value);
     const html = `
       <html>
         <head>
@@ -161,10 +197,10 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
         <body>
           <h1>Recibo de Pagamento</h1>
           <div class="box">
-            <p><strong>Cliente:</strong> ${client.name}</p>
+            <p><strong>Cliente:</strong> ${activeClient?.name || 'Cliente'}</p>
             <p><strong>Valor:</strong> ${valor}</p>
-            <p><strong>Vencimento:</strong> Dia ${client.dueDay}</p>
-            <p><strong>Local:</strong> ${client.location || '—'}</p>
+            <p><strong>Vencimento:</strong> Dia ${activeClient?.dueDay || '—'}</p>
+            <p><strong>Local:</strong> ${activeClient?.location || '—'}</p>
             <p><strong>Dias/Horário:</strong> ${daysDisplay} — ${timeDisplay}</p>
           </div>
           <p class="muted">Gerado por Wallet App</p>
@@ -184,13 +220,10 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
   };
 
   const handleDeleteClient = () => {
-    if (!onDeleteClient) {
-      Alert.alert('Ação indisponível', 'Função de excluir não foi configurada.');
-      return;
-    }
+    if (!activeClient?.id) return;
     Alert.alert(
-      `Apagar ${route.params?.clientTerm || 'Cliente'}`,
-      `Tem certeza que deseja apagar "${client.name}"? Esta ação não pode ser desfeita.`,
+      `Apagar ${clientTerm || 'Cliente'}`,
+      `Tem certeza que deseja apagar "${activeClient.name}"? Esta ação não pode ser desfeita.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -198,7 +231,7 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
           style: 'destructive',
           onPress: () => {
             try {
-              onDeleteClient(client.id);
+              deleteClient(activeClient.id);
               navigation.goBack();
             } catch (e) {
               Alert.alert('Erro', 'Não foi possível excluir. Tente novamente.');
@@ -225,8 +258,8 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Icon name="arrow-left" size={28} color={COLORS.text} />
         </TouchableOpacity>
-        <Text style={styles.title} numberOfLines={1}>{client.name}</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('AddClient', { clientToEdit: client, clientTerm: route.params?.clientTerm || 'Cliente' })}>
+        <Text style={styles.title} numberOfLines={1}>{activeClient?.name || ''}</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('AddClient', { clientId: activeClient?.id })}>
           <Icon name="edit-2" size={24} color={COLORS.text} />
         </TouchableOpacity>
       </View>
@@ -236,7 +269,7 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
         </View>
       </View>
       <View style={styles.actionsRow}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleWhatsAppConfirm} disabled={!client.phone}>
+        <TouchableOpacity style={styles.actionButton} onPress={handleWhatsAppConfirm} disabled={!activeClient?.phone}>
           <Icon name="message-circle" size={18} color={COLORS.background} />
           <Text style={styles.actionText}>WhatsApp</Text>
         </TouchableOpacity>
@@ -246,17 +279,24 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
         </TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={styles.container}>
-        <DetailRow icon="map-pin" label="Local" value={client.location || 'Não informado'} />
+        <DetailRow icon="map-pin" label="Local" value={activeClient?.location || 'Não informado'} />
         <DetailRow icon="phone" label="Telefone" value={phoneDisplay} />
         <DetailRow icon="dollar-sign" label="Valor Mensal" value={currencyDisplay} />
-        <DetailRow icon="credit-card" label="Vencimento" value={client.dueDay ? `Dia ${client.dueDay}` : 'Não informado'} />
+        <DetailRow
+          icon="credit-card"
+          label="Vencimento"
+          value={activeClient?.dueDay ? `Dia ${activeClient.dueDay}` : 'Não informado'}
+        />
         <DetailRow icon="calendar" label="Dias" value={daysDisplay} />
         <DetailRow icon="clock" label="Horário" value={timeDisplay} />
         {daysArray.length > 0 && (
           <View style={{ marginTop: 10 }}>
             <Text style={styles.sectionSubtitle}>Agenda por dia</Text>
             {daysArray.map((d) => {
-              const timeForDay = client.dayTimes && client.dayTimes[d] ? client.dayTimes[d] : client.time;
+              const timeForDay =
+                activeClient?.dayTimes && activeClient.dayTimes[d]
+                  ? activeClient.dayTimes[d]
+                  : activeClient?.time;
               return (
                 <View key={d} style={styles.scheduleRow}>
                   <Text style={styles.scheduleDay}>{d}</Text>
@@ -297,7 +337,7 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
         <View style={{ height: 20 }} />
         <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteClient}>
           <Icon name="trash-2" size={18} color={COLORS.background} />
-          <Text style={styles.deleteButtonText}>Excluir {route.params?.clientTerm || 'Cliente'}</Text>
+          <Text style={styles.deleteButtonText}>Excluir {clientTerm || 'Cliente'}</Text>
         </TouchableOpacity>
         <View style={{ height: 30 }} />
       </ScrollView>
@@ -307,40 +347,86 @@ const ClientDetailScreen = ({ route, navigation, onEditClient, onDeleteClient })
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(30,30,30,0.1)' },
-  title: { flex: 1, textAlign: 'center', fontSize: 22, fontWeight: 'bold', color: COLORS.text, marginHorizontal: 10 },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  title: { flex: 1, textAlign: 'center', ...TYPOGRAPHY.title, color: COLORS.text, marginHorizontal: 10 },
   container: { padding: 30 },
   detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 25 },
   detailIcon: { marginRight: 20 },
-  detailLabel: { fontSize: 14, color: COLORS.accent, marginBottom: 2 },
-  detailValue: { fontSize: 18, fontWeight: '600', color: COLORS.text },
-  separator: { height: 1, backgroundColor: 'rgba(30,30,30,0.1)', marginVertical: 15 },
-  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 20 },
-  historyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: COLORS.cardBackground, borderRadius: 10, padding: 15, marginBottom: 10 },
-  historyMonth: { fontSize: 16, color: COLORS.text },
+  detailLabel: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginBottom: 2 },
+  detailValue: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
+  separator: { height: 1, backgroundColor: COLORS.border, marginVertical: 15 },
+  sectionTitle: { ...TYPOGRAPHY.title, color: COLORS.text, marginBottom: 20 },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  historyMonth: { ...TYPOGRAPHY.body, color: COLORS.text },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15 },
-  statusText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+  statusText: { ...TYPOGRAPHY.caption, color: COLORS.textOnPrimary },
   actionsRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 12 },
-  actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.text, paddingVertical: 12, borderRadius: 10 },
-  actionText: { color: COLORS.background, fontWeight: '700', textAlign: 'center' },
-  sectionSubtitle: { fontSize: 14, fontWeight: '600', color: COLORS.accent, marginBottom: 8 },
-  scheduleRow: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: COLORS.cardBackground, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 6 },
-  scheduleDay: { fontSize: 14, color: COLORS.text, fontWeight: '600' },
-  scheduleTime: { fontSize: 14, color: COLORS.text },
-  deleteButton: {marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#D9534F', paddingVertical: 14, borderRadius: 10, marginHorizontal: 20 },
-  deleteButtonText: {color: COLORS.background, fontWeight: '700'},
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  actionText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary, textAlign: 'center' },
+  sectionSubtitle: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginBottom: 8 },
+  scheduleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.cardBackground,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  scheduleDay: { ...TYPOGRAPHY.bodyMedium, color: COLORS.text },
+  scheduleTime: { ...TYPOGRAPHY.body, color: COLORS.text },
+  deleteButton: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.danger,
+    paddingVertical: 14,
+    borderRadius: 10,
+    marginHorizontal: 20,
+  },
+  deleteButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
 
   headerStatusRow: { paddingHorizontal: 20, paddingTop: 8 },
   statusPill: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14 },
-  statusPillText: { color: '#FFF', fontWeight: '700', fontSize: 12 },
+  statusPillText: { ...TYPOGRAPHY.caption, color: COLORS.textOnPrimary },
 
   filterRow: { flexDirection: 'row', gap: 8, marginTop: 8, marginBottom: 6 },
-  filterBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(30,30,30,0.08)' },
-  filterBtnActive: { backgroundColor: COLORS.text },
-  filterText: { color: COLORS.text, fontWeight: '600' },
-  filterTextActive: { color: COLORS.background },
+  filterBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(26,32,44,0.08)' },
+  filterBtnActive: { backgroundColor: COLORS.primary },
+  filterText: { ...TYPOGRAPHY.caption, color: COLORS.text },
+  filterTextActive: { ...TYPOGRAPHY.caption, color: COLORS.textOnPrimary },
 
-  amountText: { fontSize: 12, color: COLORS.accent, fontWeight: '600' },
+  amountText: { ...TYPOGRAPHY.caption, color: COLORS.accent },
 });
 
 export default ClientDetailScreen;

@@ -9,42 +9,17 @@ import HomeScreen from './src/screens/HomeScreen';
 import AgendaScreen from './src/screens/AgendaScreen';
 import ClientsScreen from './src/screens/ClientsScreen';
 import AddClientScreen from './src/screens/AddClientScreen';
+import AddExpenseScreen from './src/screens/AddExpenseScreen';
 import RevenueInsightsScreen from './src/screens/RevenueInsightsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import PlanDetailsScreen from './src/screens/PlanDetailsScreen';
+import { COLORS, TYPOGRAPHY } from './src/constants/theme';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
-const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
-};
+const TAB_INACTIVE = COLORS.textSecondary;
 
-const TabNavigator = ({
-  clientTerm,
-  clients,
-  planTier,
-  clientLimit,
-  activeMonth,
-  onTogglePayment,
-  onDeleteClient,
-  scheduleOverrides,
-  onMarkAppointmentStatus,
-  onClearAppointmentStatus,
-  onRescheduleAppointment,
-  adsEnabled,
-  onSignOut,
-  notificationsEnabled,
-  canAskNotifications,
-  onRequestNotifications,
-  onToggleNotifications,
-  notificationPermissionGranted,
-  onUpgradePlan,
-  userName,
-  userProfession,
-  onEditClient,
-}) => {
+const TabNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -59,116 +34,77 @@ const TabNavigator = ({
             iconName = focused ? 'calendar' : 'calendar-outline';
           } else if (route.name === 'ClientesTab') {
             iconName = focused ? 'people' : 'people-outline';
-          } else if (route.name === 'Configurações') {
-            iconName = focused ? 'settings' : 'settings-outline';
           }
           return <Ionicons name={iconName} size={size} color={color} />;
         },
-        tabBarActiveTintColor: COLORS.text,
-        tabBarInactiveTintColor: COLORS.placeholder,
+        tabBarActiveTintColor: COLORS.textPrimary,
+        tabBarInactiveTintColor: TAB_INACTIVE,
         tabBarShowLabel: true, 
         tabBarStyle: { 
-          backgroundColor: COLORS.background,
-          borderTopWidth: 0,
+          backgroundColor: COLORS.surface,
+          borderTopWidth: 1,
+          borderTopColor: COLORS.border,
           elevation: 0,
           height: 90,
           paddingTop: 10,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          ...TYPOGRAPHY.caption,
           paddingBottom: 10, 
         },
       })}
     >
       <Tab.Screen name="Início">
-        {props => (
-          <HomeScreen
-            {...props}
-            clientTerm={clientTerm}
-            clients={clients}
-            planTier={planTier}
-            clientLimit={clientLimit}
-            activeMonth={activeMonth}
-            scheduleOverrides={scheduleOverrides}
-            onMarkAppointmentStatus={onMarkAppointmentStatus}
-            onClearAppointmentStatus={onClearAppointmentStatus}
-            onRescheduleAppointment={onRescheduleAppointment}
-            adsEnabled={adsEnabled}
-            userName={userName}
-            userProfession={userProfession}
-          />
-        )}
+        {props => <HomeScreen {...props} planTier={planTier} />}
       </Tab.Screen>
 
       <Tab.Screen name="Gráficos" options={{ title: 'Gráficos' }}>
-        {props => (
-          <RevenueInsightsScreen
-            {...props}
-            clients={clients}
-            activeMonth={activeMonth}
-          />
-        )}
+        {props => <RevenueInsightsScreen {...props} />}
       </Tab.Screen>
 
       <Tab.Screen name="Agenda">
-        {props => <AgendaScreen {...props} clients={clients} scheduleOverrides={scheduleOverrides} />}
+        {props => <AgendaScreen {...props} />}
       </Tab.Screen>
 
       <Tab.Screen name="ClientesTab" options={{ title: 'Clientes' }}>
-        {props => (
-          <ClientsScreen
-            {...props}
-            clientTerm={clientTerm}
-            clients={clients}
-            onTogglePayment={onTogglePayment}
-            onDeleteClient={onDeleteClient}
-          />
-        )}
+        {props => <ClientsScreen {...props} />}
       </Tab.Screen>
 
-      <Tab.Screen name="Configurações">
-        {props => (
-          <SettingsScreen
-            {...props}
-            planTier={planTier}
-            clientLimit={clientLimit}
-            clientCount={clients.length}
-            notificationsEnabled={notificationsEnabled}
-            canAskNotifications={canAskNotifications}
-            onRequestNotifications={onRequestNotifications}
-            onToggleNotifications={onToggleNotifications}
-            notificationPermissionGranted={notificationPermissionGranted}
-            onSignOut={onSignOut}
-            onUpgradePlan={onUpgradePlan}
-            userName={userName}
-            userProfession={userProfession}
-          />
-        )}
-      </Tab.Screen>
     </Tab.Navigator>
   );
 };
 
-const AppNavigator = ({ clientTerm, clients, onAddClient, onTogglePayment, onDeleteClient, onEditClient }) => {
+const AppNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs">
         {props => (
           <TabNavigator
             {...props}
-            clientTerm={clientTerm}
-            clients={clients}
-            onTogglePayment={onTogglePayment}
-            onDeleteClient={onDeleteClient}
-            onEditClient={onEditClient} // Passa para as Tabs
+            planTier={planTier}
+            onUpgradePlan={onUpgradePlan}
+            onSignOut={onSignOut}
           />
         )}
       </Stack.Screen>
       <Stack.Screen name="AddClient" options={{ presentation: 'modal' }}>
-        {props => <AddClientScreen {...props} onAddClient={onAddClient} onEditClient={onEditClient} />}
+        {props => <AddClientScreen {...props} planTier={planTier} />}
       </Stack.Screen>
       <Stack.Screen name="ClientDetail">
-        {props => <ClientDetailScreen {...props} onEditClient={onEditClient} onDeleteClient={onDeleteClient}/>}
+        {props => <ClientDetailScreen {...props} />}
+      </Stack.Screen>
+      <Stack.Screen name="AddExpense" options={{ presentation: 'modal' }}>
+        {props => <AddExpenseScreen {...props} />}
+      </Stack.Screen>
+      <Stack.Screen name="Configurações">
+        {props => (
+          <SettingsScreen
+            {...props}
+            planTier={planTier}
+            onSignOut={onSignOut}
+            onUpgradePlan={onUpgradePlan}
+          />
+        )}
       </Stack.Screen>
       <Stack.Screen
         name="PlanDetails"

@@ -15,12 +15,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useClientStore } from '../store/useClientStore';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
-  accent: '#5D5D5D',
+  background: THEME.background,
+  surface: THEME.surface,
+  text: THEME.textPrimary,
+  placeholder: THEME.textSecondary,
+  accent: THEME.textSecondary,
+  border: THEME.border,
+  primary: THEME.primary,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 const WEEKDAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
@@ -92,17 +98,20 @@ const formatPhoneBR = (value) => {
 const AddClientScreen = ({
   navigation,
   route,
-  onAddClient,
-  onUpdateClient,
-  onEditClient,
   defaultClientTerm = 'Cliente',
   planTier = 'free',
   clientLimit = 3,
-  clientCount = 0,
 }) => {
-  const { clientTerm, clientToEdit } = route.params ?? {};
-  const editingClient = clientToEdit ?? null;
-  const term = clientTerm || defaultClientTerm;
+  const storeClientTerm = useClientStore((state) => state.clientTerm);
+  const addClient = useClientStore((state) => state.addClient);
+  const updateClient = useClientStore((state) => state.updateClient);
+  const clientCount = useClientStore((state) => state.clients.length);
+
+  const { clientTerm, clientToEdit, clientId } = route.params ?? {};
+  const editingClient = useClientStore((state) =>
+    state.clients.find((client) => client.id === clientId || client.id === clientToEdit?.id)
+  ) || clientToEdit || null;
+  const term = clientTerm || storeClientTerm || defaultClientTerm;
   const isEditing = !!editingClient;
 
   const [name, setName] = useState(editingClient?.name ?? '');
@@ -343,25 +352,24 @@ const AddClientScreen = ({
       notificationsScheduleOptIn,
     };
     if (isEditing) {
-      if (onEditClient && editingClient?.id) {
-        onEditClient({ id: editingClient.id, ...editingClient, ...newClientData });
-      } else if (onUpdateClient && editingClient?.id) {
-        onUpdateClient(editingClient.id, newClientData);
+      if (editingClient?.id) {
+        updateClient(editingClient.id, newClientData);
       }
       navigation.goBack();
       return;
     }
 
-    const success = onAddClient ? onAddClient(newClientData) : true;
-    if (success) {
-      navigation.goBack();
-    } else {
+    if (planTier === 'free' && clientCount >= clientLimit) {
       Alert.alert(
         'Limite atingido',
         `A versão gratuita permite cadastrar até ${clientLimit} clientes. Conheça o plano pago para liberar cadastros ilimitados.`,
         [{ text: 'Entendi', style: 'default' }],
       );
+      return;
     }
+
+    addClient(newClientData);
+    navigation.goBack();
   };
 
   return (
@@ -516,7 +524,7 @@ const AddClientScreen = ({
           <Switch
             value={notificationsPaymentOptIn}
             onValueChange={setNotificationsPaymentOptIn}
-            trackColor={{ false: 'rgba(30,30,30,0.2)', true: COLORS.text }}
+            trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
             thumbColor={notificationsPaymentOptIn ? COLORS.background : '#f4f3f4'}
           />
         </View>
@@ -525,7 +533,7 @@ const AddClientScreen = ({
           <Switch
             value={notificationsScheduleOptIn}
             onValueChange={setNotificationsScheduleOptIn}
-            trackColor={{ false: 'rgba(30,30,30,0.2)', true: COLORS.text }}
+            trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
             thumbColor={notificationsScheduleOptIn ? COLORS.background : '#f4f3f4'}
           />
         </View>
@@ -545,32 +553,64 @@ const AddClientScreen = ({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(30,30,30,0.1)' },
-  title: { fontSize: 22, fontWeight: 'bold', color: COLORS.text },
-  saveButton: { backgroundColor: COLORS.text, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
-  saveButtonText: { color: COLORS.background, fontWeight: 'bold' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  title: { ...TYPOGRAPHY.title, color: COLORS.text },
+  saveButton: { backgroundColor: COLORS.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
+  saveButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
   container: { padding: 20 },
   inputGroup: { marginBottom: 25 },
-  label: { fontSize: 16, color: COLORS.accent, marginBottom: 8 },
-  input: { backgroundColor: 'rgba(30,30,30,0.05)', height: 50, borderRadius: 10, paddingHorizontal: 15, fontSize: 16, color: COLORS.text },
+  label: { ...TYPOGRAPHY.subtitle, color: COLORS.accent, marginBottom: 8 },
+  input: {
+    backgroundColor: COLORS.surface,
+    height: 50,
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    ...TYPOGRAPHY.body,
+    color: COLORS.text,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
   timePickerButton: { justifyContent: 'center' },
-  timePickerValue: { fontSize: 16, color: COLORS.text, fontWeight: '600' },
-  timePickerPlaceholder: { fontSize: 16, color: COLORS.placeholder },
+  timePickerValue: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
+  timePickerPlaceholder: { ...TYPOGRAPHY.subtitle, color: COLORS.placeholder },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   weekdaysContainer: { flexDirection: 'row', justifyContent: 'space-between' },
-  dayButton: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(30,30,30,0.05)' },
-  dayButtonSelected: { backgroundColor: COLORS.text },
-  dayText: { color: COLORS.text, fontWeight: 'bold' },
-  dayTextSelected: { color: COLORS.background },
-  limitNotice: { backgroundColor: 'rgba(30,30,30,0.08)', borderRadius: 10, padding: 12, marginBottom: 20 },
-  limitText: { color: COLORS.accent, fontSize: 14 },
+  dayButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  dayButtonSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  dayText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.text },
+  dayTextSelected: { color: COLORS.textOnPrimary },
+  limitNotice: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  limitText: { ...TYPOGRAPHY.body, color: COLORS.accent },
   iosPickerContainer: {
     marginTop: 12,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.08)',
+    borderColor: COLORS.border,
   },
   iosPickerHeader: {
     flexDirection: 'row',
@@ -578,17 +618,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  iosPickerAction: { fontSize: 16, color: COLORS.accent },
-  iosPickerActionPrimary: { color: COLORS.text, fontWeight: '600' },
+  iosPickerAction: { ...TYPOGRAPHY.subtitle, color: COLORS.accent },
+  iosPickerActionPrimary: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
   dayTimesContainer: {
-    backgroundColor: 'rgba(30,30,30,0.05)',
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  dayTimesTitle: { fontSize: 14, fontWeight: '600', color: COLORS.accent, marginBottom: 12 },
+  dayTimesTitle: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginBottom: 12 },
   dayTimeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  dayTimeLabel: { width: 60, fontSize: 14, color: COLORS.text, fontWeight: '600' },
+  dayTimeLabel: { width: 60, ...TYPOGRAPHY.buttonSmall, color: COLORS.text },
   dayTimeButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -599,12 +641,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.1)',
+    borderColor: COLORS.border,
   },
-  dayTimeButtonText: { fontSize: 14, color: COLORS.text, fontWeight: '600' },
-  dayTimeReset: { marginLeft: 10, padding: 6, borderRadius: 12, backgroundColor: 'rgba(30,30,30,0.05)' },
+  dayTimeButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.text },
+  dayTimeReset: { marginLeft: 10, padding: 6, borderRadius: 12, backgroundColor: COLORS.border },
   switchGroup: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  switchLabel: { fontSize: 16, color: COLORS.accent, marginRight: 12 },
+  switchLabel: { ...TYPOGRAPHY.subtitle, color: COLORS.accent, marginRight: 12 },
 });
 
 export default AddClientScreen;

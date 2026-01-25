@@ -1,29 +1,45 @@
-import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'; 
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Swiper from 'react-native-swiper';
 import { Feather as Icon } from '@expo/vector-icons';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import {
+  requestNotificationPermissionAsync,
+  shouldAskForNotificationPermission,
+} from '../utils/notifications';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
+  background: THEME.background,
+  surface: THEME.surface,
+  text: THEME.textPrimary,
+  secondary: THEME.textSecondary,
+  primary: THEME.primary,
+  border: THEME.border,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 const onboardingData = [
   {
     iconName: 'pie-chart',
     title: 'Clareza e Controle',
-    description: 'Gerencie seus recebimentos, despesas e clientes em um único lugar.',
+    description: 'Gerencie seus recebimentos, despesas e clientes em um unico lugar.',
   },
   {
     iconName: 'calendar',
     title: 'Agenda Inteligente',
-    description: 'Organize seus compromissos e visualize sua rotina diária.',
+    description: 'Organize seus compromissos e visualize sua rotina diaria.',
   },
   {
     iconName: 'award',
     title: 'Foco no Essencial',
     description: 'Menos burocracia, mais tempo para o que realmente importa.',
+  },
+  {
+    type: 'notifications',
+    iconName: 'bell',
+    title: 'Lembretes Inteligentes',
+    description: 'Receba avisos de cobranca e compromissos sem perder nada.',
   },
 ];
 
@@ -33,85 +49,111 @@ const OnboardingScreen = ({
   notificationsEnabled = false,
   canAskNotifications = true,
 }) => {
-  // ETAPA 1: Criar uma "referência" para controlar o Swiper de fora
   const swiperRef = useRef(null);
-
-  // ETAPA 2: Criar um "estado" para saber em qual slide estamos
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [localNotificationsEnabled, setLocalNotificationsEnabled] = useState(
+    Boolean(notificationsEnabled),
+  );
+  const [localCanAskNotifications, setLocalCanAskNotifications] = useState(
+    Boolean(canAskNotifications),
+  );
 
-  // ETAPA 3: Criar a função que o botão vai chamar
+  useEffect(() => {
+    setLocalNotificationsEnabled(Boolean(notificationsEnabled));
+  }, [notificationsEnabled]);
+
+  useEffect(() => {
+    setLocalCanAskNotifications(Boolean(canAskNotifications));
+  }, [canAskNotifications]);
+
   const handlePress = () => {
-    // Verifica se não estamos no último slide
     if (currentIndex < onboardingData.length - 1) {
-      // Manda o swiper avançar 1 slide
-      swiperRef.current.scrollBy(1);
-    } else {
-      // Se já estivermos no último, chama a função para completar
-      onComplete();
+      swiperRef.current?.scrollBy(1);
+      return;
     }
+    onComplete?.();
   };
 
   const handleNotificationsPress = async () => {
-    if (!onRequestNotifications) return;
-    await onRequestNotifications();
+    try {
+      let granted = false;
+      if (onRequestNotifications) {
+        const result = await onRequestNotifications();
+        granted = Boolean(result);
+      } else {
+        granted = await requestNotificationPermissionAsync();
+      }
+
+      setLocalNotificationsEnabled(granted);
+
+      if (!onRequestNotifications) {
+        const canAsk = await shouldAskForNotificationPermission();
+        setLocalCanAskNotifications(Boolean(canAsk));
+      }
+    } catch (error) {
+      setLocalNotificationsEnabled(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <Swiper
-        // Conecta nossa referência ao componente Swiper
         ref={swiperRef}
         style={styles.wrapper}
         showsButtons={false}
         loop={false}
-        activeDotColor={COLORS.text}
-        dotColor={'rgba(30, 30, 30, 0.2)'}
-        // Atualiza nosso "estado" toda vez que o slide muda
+        activeDotColor={COLORS.primary}
+        dotColor={'rgba(113,128,150,0.3)'}
         onIndexChanged={(index) => setCurrentIndex(index)}
       >
         {onboardingData.map((item, index) => (
-          <View key={index} style={styles.slide}>
-            <Icon name={item.iconName} size={100} color={COLORS.text} style={styles.icon} />
+          <View key={`${item.title}-${index}`} style={styles.slide}>
+            <Icon name={item.iconName} size={96} color={COLORS.primary} style={styles.icon} />
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.description}>{item.description}</Text>
+
+            {item.type === 'notifications' ? (
+              <View style={styles.permissionCard}>
+                <View style={styles.permissionHeader}>
+                  <Icon name="bell" size={24} color={COLORS.text} />
+                  <View style={styles.permissionTextBlock}>
+                    <Text style={styles.permissionTitle}>Receber lembretes</Text>
+                    <Text style={styles.permissionSubtitle}>
+                      Ative notificacoes para cobranca e compromissos automaticos.
+                    </Text>
+                  </View>
+                </View>
+                {localNotificationsEnabled ? (
+                  <View style={styles.permissionStatus}>
+                    <Icon name="check" size={16} color={COLORS.primary} />
+                    <Text style={styles.permissionStatusText}>Notificacoes ativadas</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[
+                      styles.permissionButton,
+                      !localCanAskNotifications && styles.permissionButtonDisabled,
+                    ]}
+                    onPress={handleNotificationsPress}
+                    disabled={!localCanAskNotifications}
+                  >
+                    <Text style={styles.permissionButtonText}>
+                      {localCanAskNotifications
+                        ? 'Ativar lembretes'
+                        : 'Verifique as configuracoes do sistema'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : null}
           </View>
         ))}
       </Swiper>
 
       <View style={styles.footer}>
-        <View style={styles.permissionCard}>
-          <View style={styles.permissionHeader}>
-            <Icon name="bell" size={24} color={COLORS.text} />
-            <View style={styles.permissionTextBlock}>
-              <Text style={styles.permissionTitle}>Receber lembretes</Text>
-              <Text style={styles.permissionSubtitle}>
-                Ative notificações para cobrança e compromissos automáticos.
-              </Text>
-            </View>
-          </View>
-          {notificationsEnabled ? (
-            <View style={styles.permissionStatus}>
-              <Icon name="check" size={16} color={COLORS.text} />
-              <Text style={styles.permissionStatusText}>Notificações ativadas</Text>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={[styles.permissionButton, !canAskNotifications && styles.permissionButtonDisabled]}
-              onPress={handleNotificationsPress}
-              disabled={!canAskNotifications}
-            >
-              <Text style={styles.permissionButtonText}>
-                {canAskNotifications ? 'Ativar lembretes' : 'Verifique as configurações do sistema'}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* ETAPA 4: O botão agora chama nossa nova função */}
         <TouchableOpacity style={styles.doneButton} onPress={handlePress}>
-          {/* O texto do botão agora muda dinamicamente */}
           <Text style={styles.doneButtonText}>
-            {currentIndex < onboardingData.length - 1 ? 'Continuar' : 'Começar'}
+            {currentIndex < onboardingData.length - 1 ? 'Continuar' : 'Comecar'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -132,60 +174,57 @@ const styles = StyleSheet.create({
     padding: 40,
   },
   icon: {
-    marginBottom: 50,
+    marginBottom: 40,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.title,
     color: COLORS.text,
     textAlign: 'center',
-    marginBottom: 16,
-    fontFamily: 'System',
+    marginBottom: 12,
   },
   description: {
-    fontSize: 17,
-    color: COLORS.text,
-    opacity: 0.7,
+    ...TYPOGRAPHY.body,
+    color: COLORS.secondary,
     textAlign: 'center',
     lineHeight: 25,
-    fontFamily: 'System',
   },
   footer: {
     padding: 30,
     paddingTop: 0,
   },
   permissionCard: {
-    backgroundColor: 'rgba(30,30,30,0.05)',
+    backgroundColor: COLORS.surface,
     borderRadius: 20,
     padding: 18,
-    marginBottom: 20,
+    marginTop: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignSelf: 'stretch',
   },
   permissionHeader: { flexDirection: 'row', alignItems: 'center' },
   permissionTextBlock: { marginLeft: 12, flex: 1 },
-  permissionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text },
-  permissionSubtitle: { fontSize: 13, color: COLORS.text, opacity: 0.7, marginTop: 4 },
+  permissionTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
+  permissionSubtitle: { ...TYPOGRAPHY.caption, color: COLORS.secondary, marginTop: 4 },
   permissionButton: {
     marginTop: 16,
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
     borderRadius: 14,
     paddingVertical: 12,
     alignItems: 'center',
   },
   permissionButtonDisabled: { opacity: 0.5 },
-  permissionButtonText: { color: COLORS.background, fontSize: 14, fontWeight: '600' },
+  permissionButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
   permissionStatus: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
-  permissionStatusText: { color: COLORS.text, fontSize: 14, fontWeight: '600', marginLeft: 6 },
+  permissionStatusText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.text, marginLeft: 6 },
   doneButton: {
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
     paddingVertical: 16,
     borderRadius: 30,
   },
   doneButtonText: {
-    color: COLORS.background,
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.button,
+    color: COLORS.textOnPrimary,
     textAlign: 'center',
-    fontFamily: 'System',
   },
 });
 

@@ -1,11 +1,21 @@
 import React, { useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
+import { Feather as Icon } from '@expo/vector-icons';
 
 import { formatCurrency, getMonthKey } from '../utils/dateUtils';
+import { useClientStore } from '../store/useClientStore';
+import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
-const COLOR_PALETTE = ['#4C6EF5', '#F76707', '#12B886', '#845EF7', '#FF922B', '#51CF66', '#15AABF', '#E64980'];
+const CHART_COLORS = ['#3182CE', '#38A169', '#D69E2E', '#E53E3E', '#805AD5', '#D53F8C', '#319795'];
+
+const normalizePaymentStatus = (entry) => {
+  if (!entry) return 'pending';
+  const rawStatus = typeof entry === 'string' ? entry : entry?.status;
+  if (!rawStatus) return 'pending';
+  return rawStatus === 'paid' || rawStatus === 'pago' ? 'paid' : 'pending';
+};
 
 const normalizeLocationLabel = (value) => {
   if (!value) return 'Sem local';
@@ -25,7 +35,6 @@ const describeArc = (x, y, radius, startAngle, endAngle) => {
   const start = polarToCartesian(x, y, radius, endAngle);
   const end = polarToCartesian(x, y, radius, startAngle);
   const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
-
   return [
     'M',
     start.x,
@@ -47,16 +56,9 @@ const describeArc = (x, y, radius, startAngle, endAngle) => {
 
 const PieChart = ({ segments }) => {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  if (total <= 0) return null;
 
-  if (total <= 0) {
-    return (
-      <View style={styles.chartPlaceholder}>
-        <Text style={styles.chartPlaceholderText}>Sem dados suficientes para gerar o gráfico.</Text>
-      </View>
-    );
-  }
-
-  const radius = 90;
+  const radius = 78;
   const size = radius * 2 + 10;
   let cumulativeAngle = 0;
 
@@ -64,9 +66,7 @@ const PieChart = ({ segments }) => {
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       {segments.map((segment) => {
         const angle = (segment.value / total) * 360;
-        if (angle <= 0) {
-          return null;
-        }
+        if (angle <= 0) return null;
         const path = describeArc(radius + 5, radius + 5, radius, cumulativeAngle, cumulativeAngle + angle);
         cumulativeAngle += angle;
         return <Path key={segment.id} d={path} fill={segment.color} />;
@@ -75,157 +75,138 @@ const PieChart = ({ segments }) => {
   );
 };
 
-const RevenueInsightsScreen = ({ clients = [], activeMonth }) => {
-  const previousMonthKey = useMemo(() => {
-    if (!activeMonth) return null;
-    const [yearString, monthString] = activeMonth.split('-');
-    const year = Number(yearString);
-    const month = Number(monthString);
-    if (!year || !month) return null;
-    const baseDate = new Date(year, month - 1, 1);
-    baseDate.setMonth(baseDate.getMonth() - 1);
-    return getMonthKey(baseDate);
-  }, [activeMonth]);
+const RevenueInsightsScreen = ({ activeMonth, navigation }) => {
+  const clients = useClientStore((state) => state.clients);
+  const expenses = useClientStore((state) => state.expenses);
+  const deleteExpense = useClientStore((state) => state.deleteExpense);
 
-  const insights = useMemo(() => {
+  const targetMonth = activeMonth || getMonthKey();
+
+  const incomeData = useMemo(() => {
     const bucketMap = new Map();
+    let received = 0;
+    let expected = 0;
 
     clients.forEach((client) => {
+      const value = Number(client.value || 0);
+      expected += value;
+
+      const isPaid = normalizePaymentStatus(client.payments?.[targetMonth]) === 'paid';
+      if (isPaid) received += value;
+
       const label = normalizeLocationLabel(client.location);
       const key = label.toLowerCase();
       if (!bucketMap.has(key)) {
-        const color = COLOR_PALETTE[bucketMap.size % COLOR_PALETTE.length];
         bucketMap.set(key, {
           id: key,
           label,
-          color,
-          expectedCurrent: 0,
-          receivedCurrent: 0,
-          expectedPrevious: 0,
-          receivedPrevious: 0,
+          value: 0,
+          color: CHART_COLORS[bucketMap.size % CHART_COLORS.length],
         });
       }
-
-      const bucket = bucketMap.get(key);
-      const value = Number(client.value || 0);
-      const payments = client.payments ?? {};
-
-      bucket.expectedCurrent += value;
-      if (payments[activeMonth]?.status === 'paid') {
-        bucket.receivedCurrent += value;
-      }
-
-      if (previousMonthKey) {
-        bucket.expectedPrevious += value;
-        if (payments[previousMonthKey]?.status === 'paid') {
-          bucket.receivedPrevious += value;
-        }
+      if (value > 0) {
+        bucketMap.get(key).value += value;
       }
     });
 
-    const items = Array.from(bucketMap.values()).map((item) => ({
-      ...item,
-      pendingCurrent: Math.max(item.expectedCurrent - item.receivedCurrent, 0),
-      difference: item.receivedCurrent - item.receivedPrevious,
-    }));
+    const pieSegments = Array.from(bucketMap.values());
+    return { received, expected, pieSegments };
+  }, [clients, targetMonth]);
 
-    const totalExpected = items.reduce((sum, item) => sum + item.expectedCurrent, 0);
-    const totalReceived = items.reduce((sum, item) => sum + item.receivedCurrent, 0);
-    const topCategory = items.reduce(
-      (top, item) => (item.receivedCurrent > (top?.receivedCurrent ?? 0) ? item : top),
-      null,
-    );
+  const expenseData = useMemo(() => {
+    const list = expenses
+      .filter((expense) => String(expense.date || '').startsWith(targetMonth))
+      .slice()
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+    const total = list.reduce((sum, item) => sum + Number(item.value || 0), 0);
+    return { total, list };
+  }, [expenses, targetMonth]);
 
-    return {
-      items,
-      totalExpected,
-      totalReceived,
-      topCategory,
-    };
-  }, [clients, activeMonth, previousMonthKey]);
+  const netIncome = incomeData.received - expenseData.total;
 
-  const pieSegments = useMemo(
-    () =>
-      insights.items
-        .filter((item) => item.expectedCurrent > 0)
-        .map((item) => ({ id: item.id, value: item.expectedCurrent, color: item.color })),
-    [insights.items],
-  );
+  const handleDeleteExpense = (id) => {
+    Alert.alert('Excluir', 'Deseja remover esta despesa?', [
+      { text: 'Cancelar' },
+      { text: 'Excluir', style: 'destructive', onPress: () => deleteExpense(id) },
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Visão de Receitas</Text>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Distribuição por categoria</Text>
-          <View style={styles.chartWrapper}>
-            <PieChart segments={pieSegments} />
-            <View style={styles.legend}>
-              {insights.items.length === 0 ? (
-                <Text style={styles.legendEmpty}>Cadastre clientes para visualizar a distribuição por local.</Text>
-              ) : (
-                insights.items.map((item) => (
-                  <View key={item.id} style={styles.legendRow}>
-                    <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                    <View style={styles.legendTextBlock}>
-                      <Text style={styles.legendLabel}>{item.label}</Text>
-                      <Text style={styles.legendValue}>R$ {formatCurrency(item.expectedCurrent)}</Text>
-                    </View>
-                  </View>
-                ))
-              )}
-            </View>
-          </View>
+        <View style={styles.headerRow}>
+          <Text style={styles.headerTitle}>Financeiro</Text>
+          <TouchableOpacity
+            style={styles.addExpenseBtn}
+            onPress={() => navigation.navigate('AddExpense')}
+          >
+            <Icon name="minus-circle" size={16} color={COLORS.danger} style={styles.addExpenseIcon} />
+            <Text style={styles.addExpenseText}>Lancar Despesa</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Resumo financeiro</Text>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Total previsto</Text>
-              <Text style={styles.summaryValue}>R$ {formatCurrency(insights.totalExpected)}</Text>
-            </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Recebido</Text>
-              <Text style={styles.summaryValue}>R$ {formatCurrency(insights.totalReceived)}</Text>
-            </View>
+          <Text style={styles.cardHeader}>Resultado Liquido</Text>
+          <View style={styles.netBlock}>
+            <Text style={[styles.netValue, { color: netIncome >= 0 ? COLORS.success : COLORS.danger }]}>
+              {formatCurrency(netIncome)}
+            </Text>
+            <Text style={styles.netLabel}>Lucro real no mes</Text>
           </View>
-          {insights.topCategory ? (
-            <View style={styles.topCategoryBanner}>
-              <Text style={styles.topCategoryLabel}>Maior receita</Text>
-              <Text style={styles.topCategoryValue}>
-                {insights.topCategory.label} — R$ {formatCurrency(insights.topCategory.receivedCurrent)}
+
+          <View style={styles.balanceRow}>
+            <View style={styles.balanceItem}>
+              <Text style={styles.balanceLabel}>Entradas</Text>
+              <Text style={[styles.balanceValue, { color: COLORS.success }]}>
+                {formatCurrency(incomeData.received)}
               </Text>
             </View>
-          ) : null}
+            <View style={styles.dividerVertical} />
+            <View style={styles.balanceItem}>
+              <Text style={styles.balanceLabel}>Saidas</Text>
+              <Text style={[styles.balanceValue, { color: COLORS.danger }]}>
+                {formatCurrency(expenseData.total)}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Comparativo mensal</Text>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableCell, styles.tableCellCategory]}>Categoria</Text>
-            <Text style={styles.tableCell}>Mês atual</Text>
-            <Text style={styles.tableCell}>Mês anterior</Text>
-            <Text style={styles.tableCell}>Diferença</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Historico de Despesas</Text>
+        </View>
+
+        {expenseData.list.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>Nenhuma despesa lancada neste mes.</Text>
           </View>
-          {insights.items.length === 0 ? (
-            <View style={styles.tableEmptyState}>
-              <Text style={styles.tableEmptyText}>Sem dados para comparação. Adicione clientes e marque pagamentos.</Text>
-            </View>
-          ) : (
-            insights.items.map((item) => (
-              <View key={item.id} style={styles.tableRow}>
-                <Text style={[styles.tableCell, styles.tableCellCategory]}>{item.label}</Text>
-                <Text style={styles.tableCell}>R$ {formatCurrency(item.receivedCurrent)}</Text>
-                <Text style={styles.tableCell}>R$ {formatCurrency(item.receivedPrevious)}</Text>
-                <Text style={[styles.tableCell, item.difference >= 0 ? styles.positiveText : styles.negativeText]}>
-                  {item.difference >= 0 ? '+' : ''}R$ {formatCurrency(item.difference)}
-                </Text>
+        ) : (
+          expenseData.list.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.expenseRow}
+              onLongPress={() => handleDeleteExpense(item.id)}
+            >
+              <View style={styles.expenseIcon}>
+                <Icon name="dollar-sign" size={16} color={COLORS.danger} />
               </View>
-            ))
-          )}
+              <View style={styles.expenseInfo}>
+                <Text style={styles.expenseTitle}>{item.title}</Text>
+                <Text style={styles.expenseCategory}>{item.categoryLabel || item.category || 'Outros'}</Text>
+              </View>
+              <Text style={styles.expenseValue}>- {formatCurrency(item.value)}</Text>
+            </TouchableOpacity>
+          ))
+        )}
+
+        <View style={[styles.card, styles.chartCard]}>
+          <Text style={styles.cardHeader}>Receitas por Local</Text>
+          <View style={styles.chartContainer}>
+            {incomeData.pieSegments.length > 0 ? (
+              <PieChart segments={incomeData.pieSegments} />
+            ) : (
+              <Text style={styles.emptyText}>Sem dados de receita.</Text>
+            )}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -233,75 +214,80 @@ const RevenueInsightsScreen = ({ clients = [], activeMonth }) => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#E4E2DD' },
+  safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { padding: 24, paddingBottom: 60 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#1E1E1E', marginBottom: 24 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  headerTitle: { ...TYPOGRAPHY.display, color: COLORS.textPrimary },
+  addExpenseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(229,62,62,0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  addExpenseIcon: { marginRight: 6 },
+  addExpenseText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.danger },
   card: {
-    backgroundColor: 'rgba(30,30,30,0.05)',
+    backgroundColor: COLORS.surface,
     borderRadius: 20,
     padding: 20,
-    marginBottom: 24,
-  },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#5D5D5D', marginBottom: 18, textTransform: 'uppercase' },
-  chartWrapper: { flexDirection: 'row', alignItems: 'center' },
-  legend: { flex: 1, marginLeft: 18 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  legendDot: { width: 14, height: 14, borderRadius: 7, marginRight: 10 },
-  legendTextBlock: { flex: 1 },
-  legendLabel: { fontSize: 14, fontWeight: '600', color: '#1E1E1E' },
-  legendValue: { fontSize: 13, color: 'rgba(30,30,30,0.7)', marginTop: 2 },
-  legendEmpty: { fontSize: 13, color: 'rgba(30,30,30,0.7)', lineHeight: 18 },
-  chartPlaceholder: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
     borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.1)',
+    borderColor: COLORS.border,
+    ...SHADOWS.small,
+  },
+  cardHeader: { ...TYPOGRAPHY.overline, color: COLORS.textSecondary, marginBottom: 12 },
+  netBlock: { alignItems: 'center', marginVertical: 10 },
+  netValue: { ...TYPOGRAPHY.hero },
+  netLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 4 },
+  balanceRow: {
+    flexDirection: 'row',
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingTop: 16,
+  },
+  balanceItem: { flex: 1, alignItems: 'center' },
+  balanceLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 4 },
+  balanceValue: { ...TYPOGRAPHY.subtitle },
+  dividerVertical: { width: 1, backgroundColor: COLORS.border, marginHorizontal: 10 },
+  sectionHeader: { marginTop: 24, marginBottom: 12 },
+  sectionTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
+  expenseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    marginBottom: 10,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...SHADOWS.small,
+  },
+  expenseIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(229,62,62,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  chartPlaceholderText: { color: '#5D5D5D', fontSize: 13, textAlign: 'center' },
-  summaryRow: {
-    flexDirection: 'row',
+  expenseInfo: { flex: 1, paddingHorizontal: 12 },
+  expenseTitle: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
+  expenseCategory: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
+  expenseValue: { ...TYPOGRAPHY.bodyMedium, color: COLORS.danger },
+  emptyCard: {
+    padding: 20,
     alignItems: 'center',
-    backgroundColor: 'rgba(30,30,30,0.04)',
+    justifyContent: 'center',
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: COLORS.border,
     borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
   },
-  summaryBox: { flex: 1 },
-  summaryDivider: { width: 1, height: 40, backgroundColor: 'rgba(30,30,30,0.12)', marginHorizontal: 16 },
-  summaryLabel: { fontSize: 12, color: '#5D5D5D', marginBottom: 4, textTransform: 'uppercase' },
-  summaryValue: { fontSize: 18, fontWeight: '600', color: '#1E1E1E' },
-  topCategoryBanner: {
-    marginTop: 18,
-    backgroundColor: '#1E1E1E',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  topCategoryLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase' },
-  topCategoryValue: { fontSize: 16, color: '#FFF', fontWeight: '600', marginTop: 6 },
-  tableHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(30,30,30,0.1)',
-  },
-  tableRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(30,30,30,0.05)',
-  },
-  tableCell: { flex: 1, fontSize: 13, color: '#1E1E1E', textAlign: 'right' },
-  tableCellCategory: { textAlign: 'left', fontWeight: '600' },
-  positiveText: { color: '#2F9E44', fontWeight: '600' },
-  negativeText: { color: '#E03131', fontWeight: '600' },
-  tableEmptyState: { paddingVertical: 18 },
-  tableEmptyText: { textAlign: 'center', color: 'rgba(30,30,30,0.7)', fontSize: 13 },
+  emptyText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, textAlign: 'center' },
+  chartCard: { marginTop: 24 },
+  chartContainer: { alignItems: 'center', marginTop: 10 },
 });
 
 export default RevenueInsightsScreen;

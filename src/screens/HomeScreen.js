@@ -10,38 +10,16 @@ import {
   ScrollView,
   Modal,
   TouchableWithoutFeedback,
-  Alert,
-  Platform,
-  ToastAndroid,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Haptics from 'expo-haptics';
 
-import {
-  formatCurrency,
-  getReadableMonth,
-  getNextDueDateFromDay,
-  formatTimeLabelFromDate,
-  parseDateKeyToDate,
-} from '../utils/dateUtils';
+import { formatCurrency, getNextDueDateFromDay } from '../utils/dateUtils';
 import { getAppointmentsForDate } from '../utils/schedule';
-import AdBanner from '../components/AdBanner';
-
-const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
-  accent: '#8A8A8A',
-};
-
-const getStatusBadgeStyle = (status) => ({
-  marginTop: 6,
-  backgroundColor: status === 'done' ? '#5CB85C' : '#F0AD4E',
-  borderRadius: 12,
-  paddingHorizontal: 10,
-  paddingVertical: 4,
-});
+import { useClientStore } from '../store/useClientStore';
+import { generateAndShareReceipt } from '../utils/receiptGenerator';
+import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
 const getGreetingLabel = () => {
   const hour = new Date().getHours();
@@ -50,635 +28,231 @@ const getGreetingLabel = () => {
   return 'Boa noite';
 };
 
-const RESCHEDULE_WINDOW_DAYS = 90;
+const HomeScreen = ({ navigation }) => {
+  const clients = useClientStore((state) => state.clients);
+  const userName = useClientStore((state) => state.userName);
+  const togglePayment = useClientStore((state) => state.togglePayment);
 
-const buildRescheduleBounds = () => {
-  const minDate = new Date();
-  minDate.setHours(0, 0, 0, 0);
-  const maxDate = new Date(minDate);
-  maxDate.setDate(maxDate.getDate() + (RESCHEDULE_WINDOW_DAYS - 1));
-  maxDate.setHours(23, 59, 59, 999);
-  return { minDate, maxDate };
-};
-
-const clampDateToRange = (date, minDate, maxDate) => {
-  if (!(date instanceof Date)) return new Date(minDate);
-  const time = date.getTime();
-  if (time < minDate.getTime()) return new Date(minDate);
-  if (time > maxDate.getTime()) return new Date(maxDate);
-  return new Date(date);
-};
-
-const HomeScreen = ({
-  clientTerm,
-  navigation,
-  clients,
-  activeMonth,
-  onToggleClientPayment,
-  planTier = 'free',
-  clientLimit = 3,
-  scheduleOverrides = {},
-  onMarkAppointmentStatus,
-  onClearAppointmentStatus,
-  onRescheduleAppointment,
-  adsEnabled = false,
-  userName = '',
-  userProfession = '',
-}) => {
-  const [fabMenuVisible, setFabMenuVisible] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
-  const [rescheduleState, setRescheduleState] = useState(() => {
-    const bounds = buildRescheduleBounds();
-    const initialDate = clampDateToRange(new Date(), bounds.minDate, bounds.maxDate);
+
+  const monthLabel = useMemo(() => {
+    const month = new Date().toLocaleDateString('pt-BR', { month: 'long' });
+    return month.charAt(0).toUpperCase() + month.slice(1);
+  }, []);
+
+  const financialData = useMemo(() => {
+    const currentMonthKey = new Date().toISOString().slice(0, 7);
+    const totalToReceive = clients.reduce((sum, client) => sum + Number(client.value || 0), 0);
+
+    const received = clients.reduce((sum, client) => {
+      const payment = client.payments?.[currentMonthKey];
+      const isPaid = typeof payment === 'object' ? payment?.status === 'paid' : payment === 'pago';
+      return isPaid ? sum + Number(client.value || 0) : sum;
+    }, 0);
+
+    const pending = totalToReceive - received;
+    const progress = totalToReceive > 0 ? (received / totalToReceive) * 100 : 0;
+
     return {
-      visible: false,
-      appointment: null,
-      date: initialDate,
-      showDatePicker: false,
-      showTimePicker: false,
-      minimumDate: bounds.minDate,
-      maximumDate: bounds.maxDate,
+      total: totalToReceive,
+      received,
+      pending,
+      progress: `${progress}%`,
     };
-  });
-  const [isMonthCardCollapsed, setIsMonthCardCollapsed] = useState(false);
+  }, [clients]);
 
-  const monthLabel = useMemo(() => getReadableMonth(activeMonth), [activeMonth]);
+  const upcomingPayments = useMemo(() => {
+    const now = new Date();
+    const currentMonthKey = now.toISOString().slice(0, 7);
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  const clientLookup = useMemo(
-    () =>
-      clients.reduce((acc, client) => {
-        acc[client.id] = client;
-        return acc;
-      }, {}),
-    [clients],
-  );
+    return clients
+      .map((client) => {
+        const payment = client.payments?.[currentMonthKey];
+        const isPaid = typeof payment === 'object' ? payment?.status === 'paid' : payment === 'pago';
 
-  // CHECKPOINT 8: CÁLCULOS FINANCEIROS ATUALIZADOS
-    const financialData = useMemo(() => {
-      const currentMonthKey = new Date().toISOString().slice(0, 7); // 'AAAA-MM'
-
-      const totalToReceive = clients.reduce((sum, client) => sum + parseFloat(client.value || 0), 0);
-      
-      const received = clients.reduce((sum, client) => {
-        if (client.payments && client.payments[currentMonthKey] === 'pago') {
-          return sum + parseFloat(client.value || 0);
+        let nextDueDate = null;
+        if (!isPaid && client.dueDay) {
+          nextDueDate = getNextDueDateFromDay(client.dueDay, startOfToday, client.time);
         }
-        return sum;
-      }, 0);
 
-      const pending = totalToReceive - received;
-      const progress = totalToReceive > 0 ? (received / totalToReceive) * 100 : 0;
-
-      return {
-        totalToReceive: totalToReceive.toFixed(2),
-        received: received.toFixed(2),
-        pending: pending.toFixed(2),
-        progress: `${progress}%`,
-      };
+        return { ...client, isPaid, nextDueDate };
+      })
+      .filter((client) => !client.isPaid && client.nextDueDate)
+      .sort((a, b) => a.nextDueDate - b.nextDueDate)
+      .slice(0, 10);
   }, [clients]);
 
   const todayAppointments = useMemo(() => {
     const today = new Date();
-    return getAppointmentsForDate({ date: today, clients, overrides: scheduleOverrides });
-  }, [clients, scheduleOverrides]);
-
-  const upcomingPayments = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endOfHorizon = new Date(startOfToday);
-    endOfHorizon.setDate(startOfToday.getDate() + 7);
-    endOfHorizon.setHours(23, 59, 59, 999);
-
-    return clients
-      .filter((client) => client.paymentStatus !== 'paid')
-      .map((client) => {
-        const dueDayNumber = Number(String(client.dueDay).replace(/[^0-9]/g, ''));
-        const nextDueDate = dueDayNumber
-          ? getNextDueDateFromDay(dueDayNumber, startOfToday, client.time)
-          : null;
-        return {
-          ...client,
-          nextDueDate,
-        };
-      })
-      .filter((client) => {
-        if (!client.dueDay) return false;
-        if (!client.nextDueDate) return false;
-        return client.nextDueDate >= startOfToday && client.nextDueDate <= endOfHorizon;
-      })
-      .sort((a, b) => {
-        if (!a.nextDueDate) return 1;
-        if (!b.nextDueDate) return -1;
-        return a.nextDueDate.getTime() - b.nextDueDate.getTime();
-      });
+    return getAppointmentsForDate({ date: today, clients });
   }, [clients]);
 
-  const handleOpenPaymentMenu = (client) => {
-    setSelectedPayment(client);
-  };
-
-  const handleClosePaymentMenu = () => {
+  const handleTogglePaymentFromMenu = () => {
+    if (selectedPayment) {
+      const currentMonthKey = new Date().toISOString().slice(0, 7);
+      togglePayment(selectedPayment.id, currentMonthKey);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
     setSelectedPayment(null);
   };
 
-  const handleTogglePaymentFromMenu = () => {
-    if (selectedPayment && onToggleClientPayment) {
-      const toggledToPaid = selectedPayment.paymentStatus !== 'paid';
-      const updated = onToggleClientPayment(selectedPayment.id);
-      if (updated) {
-        notify(toggledToPaid ? 'Pagamento marcado como pago.' : 'Pagamento marcado como pendente.');
-      } else {
-        notify('Não foi possível atualizar o pagamento.');
-      }
-    }
-    handleClosePaymentMenu();
+  const handleReceiptGeneration = async () => {
+    if (!selectedPayment) return;
+
+    await generateAndShareReceipt({
+      clientName: selectedPayment.name,
+      amount: selectedPayment.value || 0,
+      date: new Date(),
+      professionalName: userName || 'Profissional',
+      serviceDescription: 'Prestacao de servicos mensais',
+    });
+
+    setSelectedPayment(null);
   };
 
-  const getFormattedDate = () => {
-    const options = { weekday: 'long', day: 'numeric', month: 'long' };
-    const date = new Date().toLocaleDateString('pt-BR', options);
-    return date.charAt(0).toUpperCase() + date.slice(1);
-  };
-
-  const navigateAndCloseMenu = (screen) => {
-    setFabMenuVisible(false);
-    navigation.navigate(screen, { clientTerm });
-  };
-
-  const progressWidth = financialData.progress; // já vem como "50%"
-  const shouldShowAds = adsEnabled && planTier === 'free';
-
-  const normalizedName = useMemo(() => {
-    if (!userName) return null;
-    const trimmed = userName.trim();
-    if (!trimmed) return null;
-    const firstWord = trimmed.split(' ')[0];
-    return firstWord.charAt(0).toUpperCase() + firstWord.slice(1);
-  }, [userName]);
-
-  const normalizedProfession = useMemo(() => {
-    if (!userProfession) return null;
-    const trimmed = userProfession.trim();
-    if (!trimmed) return null;
-    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-  }, [userProfession]);
-
-  const greetingText = useMemo(() => {
+  const getGreeting = () => {
     const base = getGreetingLabel();
-    if (normalizedName) {
-      return `${base}, ${normalizedName}`;
-    }
-    if (normalizedProfession) {
-      return `${base}, ${normalizedProfession}`;
-    }
+    if (userName) return `${base}, ${userName}`;
     return `${base}!`;
-  }, [normalizedName, normalizedProfession]);
-
-  const notify = (message) => {
-    if (!message) return;
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(message, ToastAndroid.SHORT);
-    } else {
-      Alert.alert('Atualização', message);
-    }
-  };
-
-  const handleMarkAsDone = (appointment) => {
-    if (!appointment || !onMarkAppointmentStatus) return;
-    onMarkAppointmentStatus({
-      dateKey: appointment.dateKey,
-      clientId: appointment.clientId,
-      status: 'done',
-    });
-  };
-
-  const handleUndoStatus = (appointment) => {
-    if (!appointment || !onClearAppointmentStatus) return;
-    onClearAppointmentStatus({
-      dateKey: appointment.dateKey,
-      clientId: appointment.clientId,
-    });
-  };
-
-  const handleToggleAppointmentCompletion = (appointment) => {
-    if (!appointment) return;
-    if (appointment.status === 'done') {
-      handleUndoStatus(appointment);
-    } else {
-      handleMarkAsDone(appointment);
-    }
-  };
-
-  const parseTimeToDate = (baseDate, timeLabel) => {
-    if (!timeLabel) return new Date(baseDate);
-    const match = String(timeLabel).match(/(\d{1,2})(?:[:hH]?([0-9]{1,2}))?/);
-    if (!match) return new Date(baseDate);
-    const next = new Date(baseDate);
-    next.setHours(Math.min(23, parseInt(match[1], 10) || 0));
-    next.setMinutes(match[2] ? Math.min(59, parseInt(match[2], 10) || 0) : 0);
-    next.setSeconds(0, 0);
-    return next;
-  };
-
-  const openRescheduleModal = (appointment) => {
-    if (!appointment) return;
-    const bounds = buildRescheduleBounds();
-    const parsedDate = appointment.dateKey ? parseDateKeyToDate(appointment.dateKey) : null;
-    const baseDate = parsedDate instanceof Date && !Number.isNaN(parsedDate.getTime()) ? parsedDate : new Date();
-    const clampedBase = clampDateToRange(baseDate, bounds.minDate, bounds.maxDate);
-    const preset = parseTimeToDate(clampedBase, appointment.time);
-    setRescheduleState({
-      visible: true,
-      appointment,
-      date: preset,
-      showDatePicker: false,
-      showTimePicker: false,
-      minimumDate: bounds.minDate,
-      maximumDate: bounds.maxDate,
-    });
-  };
-
-  const closeRescheduleModal = () => {
-    setRescheduleState((prev) => ({ ...prev, visible: false, appointment: null }));
-  };
-
-  const handleConfirmReschedule = () => {
-    if (!rescheduleState.appointment || !onRescheduleAppointment) {
-      closeRescheduleModal();
-      return;
-    }
-
-    const client = clientLookup[rescheduleState.appointment.clientId];
-    if (!client) {
-      Alert.alert('Não foi possível remarcar', 'Cliente não encontrado para este compromisso.');
-      closeRescheduleModal();
-      return;
-    }
-
-    const timeLabel = formatTimeLabelFromDate(rescheduleState.date);
-
-    onRescheduleAppointment({
-      client,
-      originalDateKey: rescheduleState.appointment.dateKey,
-      targetDate: rescheduleState.date,
-      newTime: timeLabel,
-    });
-
-    closeRescheduleModal();
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }}>
         <View style={styles.header}>
-          <Text style={styles.greeting}>{greetingText}</Text>
-          <Text style={styles.date}>{getFormattedDate()}</Text>
-          {planTier === 'free' ? (
-            <View style={styles.homeLimitBanner}>
-              <Text style={styles.homeLimitText}>
-                {`Plano gratuito: ${clients.length}/${clientLimit} clientes`}
-              </Text>
-              {clients.length >= clientLimit ? (
-                <Text style={styles.homeLimitCTA}>Passe para o Pro para liberar mais cadastros</Text>
-              ) : null}
-            </View>
-          ) : (
-            <View style={[styles.homeLimitBanner, styles.homeLimitBannerPro]}>
-              <Text style={styles.homeLimitTextPro}>Plano Pro ativo</Text>
-            </View>
-          )}
+          <View>
+            <Text style={styles.greeting}>{getGreeting()}</Text>
+            <Text style={styles.date}>
+              {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.profileButton}
+            onPress={() => navigation.navigate('Configurações')}
+          >
+            <Icon name="settings" size={24} color={COLORS.textPrimary} />
+          </TouchableOpacity>
         </View>
 
-        {shouldShowAds ? (
-          <View style={styles.adContainer}>
-            <AdBanner placement="home" />
-          </View>
-        ) : null}
-
-        <View style={styles.card}>
-          <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>VISÃO DO MÊS ({monthLabel})</Text>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={isMonthCardCollapsed ? 'Mostrar visão do mês' : 'Ocultar visão do mês'}
-              onPress={() => setIsMonthCardCollapsed((prev) => !prev)}
-            >
-              <Icon
-                name={isMonthCardCollapsed ? 'eye' : 'eye-off'}
-                size={20}
-                color={COLORS.text}
-              />
-            </TouchableOpacity>
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryHeader}>
+            <Text style={styles.summaryTitle}>Resumo de {monthLabel}</Text>
+            <Icon name="bar-chart-2" size={20} color={COLORS.primary} />
           </View>
 
-          {!isMonthCardCollapsed ? (
-            <>
-              <Text style={styles.receivedValue}>R$ {formatCurrency(Number(financialData.totalToReceive))}</Text>
-              <Text style={styles.receivedLabel}>Previsto neste mês</Text>
+          <View style={styles.summaryValues}>
+            <View>
+              <Text style={styles.label}>Recebido</Text>
+              <Text style={styles.bigValue}>{formatCurrency(financialData.received)}</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.label}>Previsto</Text>
+              <Text style={styles.subValue}>{formatCurrency(financialData.total)}</Text>
+            </View>
+          </View>
 
-              <View style={styles.progressContainer}>
-                <View style={[styles.progressBar, { width: progressWidth }]} />
-              </View>
-              <View style={styles.progressLabels}>
-                <Text style={styles.progressText}>Total a Receber: R$ {formatCurrency(financialData.expectedMonth)}</Text>
-                <Text style={styles.progressText}>Pendente: R$ R$ {formatCurrency(Number(financialData.pending))}</Text>
-              </View>
-              <View style={styles.metricsRow}>
-                <View style={styles.metricBox}>
-                  <Text style={styles.metricLabel}>Recebido no mês</Text>
-                  <Text style={styles.metricValue}>R$ {formatCurrency(Number(financialData.received))}</Text>
-                </View>
-                <View style={styles.metricDivider} />
-                <View style={styles.metricBox}>
-                  <Text style={styles.metricLabel}>Pendente no mês</Text>
-                  <Text style={styles.metricValue}>R$ {formatCurrency(Number(financialData.pending))}</Text>
-                </View>
-              </View>
-            </>
-          ) : null}
+          <View style={styles.progressBg}>
+            <View style={[styles.progressFill, { width: financialData.progress }]} />
+          </View>
+          <Text style={styles.progressText}>
+            Falta {formatCurrency(financialData.pending)} para a meta
+          </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>PRÓXIMOS PAGAMENTOS</Text>
+          <Text style={styles.sectionTitle}>A Receber</Text>
           <FlatList
             data={upcomingPayments}
             horizontal
             showsHorizontalScrollIndicator={false}
             keyExtractor={(item) => item.id}
+            ListEmptyComponent={<Text style={styles.emptyText}>Tudo pago por enquanto!</Text>}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.pill} onPress={() => handleOpenPaymentMenu(item)}>
-                <Text style={styles.pillText}>{item.name}</Text>
-                <Text style={styles.pillSubText}>
-                  {item.paymentStatus === 'paid'
-                    ? 'Pago'
-                    : item.nextDueDate
-                      ? `Vence ${item.nextDueDate.toLocaleDateString('pt-BR', {
-                          weekday: 'short',
-                          day: '2-digit',
-                          month: 'short',
-                        })}`
-                      : 'Vencimento a definir'}
-                </Text>
+              <TouchableOpacity
+                style={styles.paymentCard}
+                onPress={() => setSelectedPayment(item)}
+              >
+                <View style={styles.paymentIcon}>
+                  <Icon name="dollar-sign" size={20} color={COLORS.primary} />
+                </View>
+                <View>
+                  <Text style={styles.paymentName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.paymentDate}>
+                    Vence{' '}
+                    {item.nextDueDate.toLocaleDateString('pt-BR', {
+                      day: '2-digit',
+                      month: 'short',
+                    })}
+                  </Text>
+                </View>
               </TouchableOpacity>
             )}
-            ListEmptyComponent={<Text style={styles.emptyFlatListText}>Nenhum pagamento previsto nos próximos 7 dias.</Text>}
           />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>COMPROMISSOS DE HOJE</Text>
-          {todayAppointments.length > 0 ? (
-            todayAppointments.map((item) => (
-              
-              <View key={item.id} style={styles.appointmentCard}>
-                <View style={styles.appointmentHeader}>
-                  <View style={styles.appointmentHeaderTitle}>
-                    <Text style={styles.appointmentName}>{item.name}</Text>
-                    {item.status === 'done' ? (
-                      <View style={styles.statusBadgeDonePill}>
-                        <Text style={styles.statusBadgeDonePillText}>Concluído</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <View style={styles.timePill}>
-                    <Icon name="clock" size={16} color={COLORS.text} />
-                    <Text style={styles.timePillText}>{item.time || '--:--'}</Text>
-                  </View>
+          <Text style={styles.sectionTitle}>Agenda Hoje</Text>
+          {todayAppointments.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Icon name="calendar" size={40} color={COLORS.textSecondary} style={{ opacity: 0.3 }} />
+              <Text style={styles.emptyText}>Agenda livre hoje.</Text>
+            </View>
+          ) : (
+            todayAppointments.map((appointment) => (
+              <View key={appointment.id} style={styles.appointmentRow}>
+                <View style={styles.timeColumn}>
+                  <Text style={styles.timeText}>{appointment.time}</Text>
                 </View>
-
-                <View style={styles.appointmentBody}>
-                  <View style={styles.infoRow}>
-                    <Icon name="map-pin" size={16} color="rgba(30,30,30,0.6)" />
-                    <Text style={styles.infoText}>
-                      {item.location || 'Local não informado'}
-                    </Text>
-                  </View>
-                  {item.note ? (
-                    <View style={[styles.infoRow, styles.noteRow]}>
-                      <Icon name="clipboard" size={16} color="rgba(30,30,30,0.6)" />
-                      <Text style={styles.infoText}>
-                        {item.note}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                <View style={styles.appointmentActions}>
-                  <TouchableOpacity
-                    style={[styles.primaryActionButton, item.status === 'done' && styles.primaryActionButtonDone]}
-                    onPress={() => handleToggleAppointmentCompletion(item)}
-                  >
-                    <Text style={styles.primaryActionButtonText}>
-                      {item.status === 'done' ? 'Desfazer' : 'Marcar como concluído'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.actionButtonSecondary]}
-                    onPress={() => openRescheduleModal(item)}
-                  >
-                    <Icon name="clock" size={16} color={COLORS.text} />
-                    <Text style={styles.actionButtonSecondaryText}>Remarcar</Text>
-                  </TouchableOpacity>
+                <View style={styles.appointmentCard}>
+                  <Text style={styles.appName}>{appointment.name}</Text>
+                  <Text style={styles.appLocation}>{appointment.location}</Text>
                 </View>
               </View>
             ))
-          ) : (
-            <Text style={styles.noAppointmentsText}>Nenhum compromisso hoje.</Text>
           )}
         </View>
-
       </ScrollView>
-      {fabMenuVisible && (
-        <View style={styles.fabMenu}>
-          <TouchableOpacity
-            style={styles.fabMenuItem}
-            onPress={() => {
-              // Placeholder action for scheduling flow; adjust route name if you have it
-              navigateAndCloseMenu('Schedule');
-            }}
-          >
-            <Text style={styles.fabMenuText}>Agendar</Text>
-            <Icon name="clock" size={20} color={COLORS.background} />
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.fabMenuItem}
-            onPress={() => navigateAndCloseMenu('AddClient')}
-          >
-            <Text style={styles.fabMenuText}>Novo {clientTerm}</Text>
-            <Icon name="user-plus" size={20} color={COLORS.background} />
-          </TouchableOpacity>
-        </View>
-      )}
-      <TouchableOpacity style={styles.fab} onPress={() => setFabMenuVisible((prev) => !prev)}>
-        <Icon name={fabMenuVisible ? 'x' : 'plus'} size={28} color={COLORS.background} />
+      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddClient')}>
+        <Icon name="plus" size={28} color={COLORS.textOnPrimary} />
       </TouchableOpacity>
 
       <Modal
         visible={!!selectedPayment}
-        animationType="fade"
         transparent
-        onRequestClose={handleClosePaymentMenu}
+        animationType="fade"
+        onRequestClose={() => setSelectedPayment(null)}
       >
-        <TouchableWithoutFeedback onPress={handleClosePaymentMenu}>
-          <View style={styles.modalBackdrop}>
-            <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={styles.paymentMenu}>
-                <Text style={styles.paymentTitle}>Atualizar pagamento</Text>
-                {selectedPayment ? (
-                  <View style={styles.paymentDetails}>
-                    <Text style={styles.paymentName}>{selectedPayment.name}</Text>
-                    <Text style={styles.paymentInfo}>
-                      {selectedPayment.paymentStatus === 'paid'
-                        ? 'Marcado como pago neste mês.'
-                        : selectedPayment.dueDay
-                          ? `Vencimento dia ${selectedPayment.dueDay}.`
-                          : 'Sem dia definido para pagamento.'}
-                    </Text>
-                  </View>
-                ) : null}
+        <TouchableWithoutFeedback onPress={() => setSelectedPayment(null)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>{selectedPayment?.name}</Text>
+                <Text style={styles.modalSubtitle}>
+                  Valor: {formatCurrency(selectedPayment?.value || 0)}
+                </Text>
 
-                <TouchableOpacity style={styles.paymentAction} onPress={handleTogglePaymentFromMenu}>
-                  <Icon
-                    name={selectedPayment?.paymentStatus === 'paid' ? 'rotate-ccw' : 'check-circle'}
-                    size={20}
-                    color={COLORS.background}
-                    style={styles.paymentActionIcon}
-                  />
-                  <Text style={styles.paymentActionText}>
-                    {selectedPayment?.paymentStatus === 'paid' ? 'Desmarcar pagamento' : 'Marcar como pago'}
+                <TouchableOpacity
+                  style={styles.modalButtonPrimary}
+                  onPress={handleTogglePaymentFromMenu}
+                >
+                  <Icon name="check-circle" size={20} color={COLORS.textOnPrimary} />
+                  <Text style={styles.modalButtonText}>Marcar como Pago</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalButtonSecondary}
+                  onPress={handleReceiptGeneration}
+                >
+                  <Icon name="share" size={20} color={COLORS.primary} />
+                  <Text style={[styles.modalButtonText, { color: COLORS.primary }]}
+                  >
+                    Enviar Recibo
                   </Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity style={styles.paymentCancel} onPress={handleClosePaymentMenu}>
-                  <Text style={styles.paymentCancelText}>Cancelar</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      <Modal
-        visible={rescheduleState.visible}
-        animationType="slide"
-        transparent
-        onRequestClose={closeRescheduleModal}
-      >
-        <TouchableWithoutFeedback onPress={closeRescheduleModal}>
-          <View style={styles.modalBackdrop}>
-            <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={styles.rescheduleModal}>
-                <Text style={styles.rescheduleTitle}>Remarcar compromisso</Text>
-                {rescheduleState.appointment ? (
-                  <Text style={styles.rescheduleSubtitle}>{rescheduleState.appointment.name}</Text>
-                ) : null}
-
-                <View style={styles.rescheduleField}>
-                  <Text style={styles.rescheduleLabel}>Nova data</Text>
-                  <TouchableOpacity
-                    style={styles.reschedulePickerButton}
-                    onPress={() =>
-                      setRescheduleState((prev) => ({
-                        ...prev,
-                        showDatePicker: true,
-                      }))
-                    }
-                  >
-                    <Text style={styles.reschedulePickerText}>
-                      {rescheduleState.date.toLocaleDateString('pt-BR', {
-                        day: '2-digit',
-                        month: 'long',
-                        year: 'numeric',
-                      })}
-                    </Text>
-                    <Icon name="calendar" size={18} color={COLORS.text} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.rescheduleField}>
-                  <Text style={styles.rescheduleLabel}>Horário</Text>
-                  <TouchableOpacity
-                    style={styles.reschedulePickerButton}
-                    onPress={() =>
-                      setRescheduleState((prev) => ({
-                        ...prev,
-                        showTimePicker: true,
-                      }))
-                    }
-                  >
-                    <Text style={styles.reschedulePickerText}>
-                      {formatTimeLabelFromDate(rescheduleState.date) || '--:--'}
-                    </Text>
-                    <Icon name="clock" size={18} color={COLORS.text} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.rescheduleActions}>
-                  <TouchableOpacity style={styles.rescheduleCancel} onPress={closeRescheduleModal}>
-                    <Text style={styles.rescheduleCancelText}>Cancelar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.rescheduleConfirm} onPress={handleConfirmReschedule}>
-                    <Text style={styles.rescheduleConfirmText}>Confirmar</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {rescheduleState.showDatePicker ? (
-                  <DateTimePicker
-                    value={rescheduleState.date}
-                    mode="date"
-                    display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                    minimumDate={rescheduleState.minimumDate}
-                    maximumDate={rescheduleState.maximumDate}
-                    onChange={(_, selectedDate) => {
-                      setRescheduleState((prev) => ({
-                        ...prev,
-                        showDatePicker: Platform.OS === 'ios',
-                        date: selectedDate
-                          ? clampDateToRange(
-                              new Date(
-                                selectedDate.getFullYear(),
-                                selectedDate.getMonth(),
-                                selectedDate.getDate(),
-                                prev.date.getHours(),
-                                prev.date.getMinutes(),
-                              ),
-                              prev.minimumDate,
-                              prev.maximumDate,
-                            )
-                          : prev.date,
-                      }));
-                    }}
-                  />
-                ) : null}
-
-                {rescheduleState.showTimePicker ? (
-                  <DateTimePicker
-                    value={rescheduleState.date}
-                    mode="time"
-                    display="spinner"
-                    is24Hour
-                    onChange={(_, selectedDate) => {
-                      setRescheduleState((prev) => ({
-                        ...prev,
-                        showTimePicker: Platform.OS === 'ios',
-                        date: selectedDate
-                          ? clampDateToRange(
-                              new Date(
-                                prev.date.getFullYear(),
-                                prev.date.getMonth(),
-                                prev.date.getDate(),
-                                selectedDate.getHours(),
-                                selectedDate.getMinutes(),
-                              ),
-                              prev.minimumDate,
-                              prev.maximumDate,
-                            )
-                          : prev.date,
-                      }));
-                    }}
-                  />
-                ) : null}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -691,229 +265,133 @@ const HomeScreen = ({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1 },
-  header: { padding: 30, paddingBottom: 15 },
-  greeting: { fontSize: 28, fontWeight: '900', color: COLORS.text },
-  date: { fontSize: 16, fontWeight: '300', color: COLORS.accent, marginTop: 4 },
-  homeLimitBanner: {
-    marginTop: 18,
-    backgroundColor: 'rgba(30,30,30,0.08)',
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+  header: {
+    padding: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
-  homeLimitBannerPro: { backgroundColor: '#5CB85C' },
-  homeLimitText: { color: COLORS.accent, fontSize: 14 },
-  homeLimitTextPro: { color: '#FFF', fontSize: 14, fontWeight: '600' },
-  homeLimitCTA: { marginTop: 4, color: COLORS.text, fontSize: 13, fontWeight: '600' },
-  card: {
-    backgroundColor: 'rgba(30,30,30,0.05)',
+  greeting: { ...TYPOGRAPHY.title, color: COLORS.textPrimary },
+  date: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginTop: 4,
+    textTransform: 'capitalize',
+  },
+  profileButton: {
+    padding: 8,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    ...SHADOWS.small,
+  },
+  summaryCard: {
+    marginHorizontal: 24,
+    backgroundColor: COLORS.surface,
     borderRadius: 20,
-    padding: 25,
-    marginHorizontal: 30,
+    padding: 20,
+    ...SHADOWS.medium,
     marginBottom: 30,
   },
-  cardHeaderRow: {
+  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+  summaryTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.textSecondary },
+  summaryValues: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'flex-end',
     marginBottom: 16,
   },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: COLORS.accent, textTransform: 'uppercase' },
-  receivedValue: { fontSize: 32, fontWeight: 'bold', color: COLORS.text },
-  receivedLabel: { fontSize: 16, color: COLORS.accent, marginBottom: 20 },
-  progressContainer: { height: 8, backgroundColor: 'rgba(30,30,30,0.1)', borderRadius: 4, overflow: 'hidden' },
-  progressBar: { height: '100%', backgroundColor: COLORS.text, borderRadius: 4 },
-  progressLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  progressText: { fontSize: 12, color: COLORS.accent },
-  metricsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 18,
-    backgroundColor: 'rgba(30,30,30,0.04)',
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-  },
-  metricBox: { flex: 1 },
-  metricDivider: { width: 1, height: 40, backgroundColor: 'rgba(30,30,30,0.12)', marginHorizontal: 16 },
-  metricLabel: { fontSize: 12, color: COLORS.accent, marginBottom: 4, textTransform: 'uppercase' },
-  metricValue: { fontSize: 18, fontWeight: '600', color: COLORS.text },
+  bigValue: { ...TYPOGRAPHY.hero, color: COLORS.textPrimary },
+  subValue: { ...TYPOGRAPHY.subtitle, color: COLORS.textSecondary },
+  label: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 4 },
+  progressBg: { height: 8, backgroundColor: '#EDF2F7', borderRadius: 4, overflow: 'hidden', marginBottom: 8 },
+  progressFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 4 },
+  progressText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, fontStyle: 'italic' },
   section: { marginBottom: 30 },
-  sectionTitle: { fontSize: 14, fontWeight: '600', color: COLORS.accent, marginBottom: 15, marginLeft: 30, textTransform: 'uppercase' },
-  pill: {
-    backgroundColor: 'rgba(30,30,30,0.05)',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    marginLeft: 15,
+  sectionTitle: {
+    ...TYPOGRAPHY.subtitle,
+    color: COLORS.textPrimary,
+    marginLeft: 24,
+    marginBottom: 15,
+  },
+  paymentCard: {
+    width: 190,
+    backgroundColor: COLORS.surface,
+    marginLeft: 24,
+    borderRadius: 16,
+    padding: 16,
+    ...SHADOWS.small,
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  pillText: { color: COLORS.text, fontWeight: '600' },
-  pillSubText: { color: COLORS.accent, fontSize: 12, marginTop: 2 },
-  emptyFlatListText: { color: COLORS.placeholder, marginLeft: 30 },
+  paymentIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(43,108,176,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  paymentName: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
+  paymentDate: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 2 },
+  emptyText: { ...TYPOGRAPHY.body, marginLeft: 24, color: COLORS.textSecondary },
+  appointmentRow: { flexDirection: 'row', paddingHorizontal: 24, marginBottom: 16 },
+  timeColumn: { width: 60, alignItems: 'center', paddingTop: 10 },
+  timeText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
   appointmentCard: {
-    marginHorizontal: 30,
-    marginBottom: 18,
-    backgroundColor: COLORS.background,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.06)',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.primary,
+    ...SHADOWS.small,
   },
-  appointmentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  appointmentHeaderTitle: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  statusBadgeDonePill: {
-    marginLeft: 12,
-    borderRadius: 12,
-    backgroundColor: COLORS.text,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  statusBadgeDonePillText: { color: COLORS.background, fontSize: 12, fontWeight: '600' },
-  appointmentName: { fontSize: 16, fontWeight: '700', color: COLORS.text, flexShrink: 1 },
-  timePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(30,30,30,0.05)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  timePillText: { marginLeft: 6, fontSize: 13, fontWeight: '600', color: COLORS.text },
-  appointmentBody: { marginBottom: 12 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  infoText: { marginLeft: 8, fontSize: 13, color: COLORS.accent, flexShrink: 1 },
-  noteRow: { marginBottom: 0 },
-  appointmentActions: { flexDirection: 'row', flexWrap: 'wrap', marginRight: -10, marginTop: 4 },
-  primaryActionButton: {
-    borderRadius: 12,
-    backgroundColor: COLORS.text,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  primaryActionButtonDone: { backgroundColor: COLORS.text, opacity: 0.85 },
-  primaryActionButtonText: { color: COLORS.background, fontSize: 14, fontWeight: '700' },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.text,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  actionButtonText: { color: COLORS.background, fontSize: 14, fontWeight: '600', marginLeft: 6 },
-  actionButtonSecondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.text },
-  actionButtonSecondaryText: { color: COLORS.text, fontSize: 14, fontWeight: '600', marginLeft: 6 },
-  noAppointmentsText: { color: COLORS.placeholder, textAlign: 'center', paddingHorizontal: 30 },
+  appName: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
+  appLocation: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 4 },
+  emptyState: { alignItems: 'center', padding: 20 },
   fab: {
     position: 'absolute',
     bottom: 30,
-    right: 30,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: COLORS.text,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 5,
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { height: 2, width: 0 },
+    ...SHADOWS.medium,
   },
-  fabMenu: {
-    position: 'absolute',
-    bottom: 100,
-    right: 30,
-    backgroundColor: COLORS.text,
-    borderRadius: 15,
-    elevation: 5,
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { height: 2, width: 0 },
-  },
-  fabMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-  },
-  fabMenuText: { color: COLORS.background, fontSize: 16, fontWeight: '600', marginRight: 10 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'flex-end',
-  },
-  paymentMenu: {
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingVertical: 24,
-    paddingHorizontal: 24,
-  },
-  paymentTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 16 },
-  paymentDetails: { marginBottom: 24 },
-  paymentName: { fontSize: 16, fontWeight: '600', color: COLORS.text },
-  paymentInfo: { fontSize: 14, color: COLORS.accent, marginTop: 4 },
-  paymentAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.text,
-    borderRadius: 16,
-    paddingVertical: 14,
-  },
-  paymentActionIcon: { marginRight: 12 },
-  paymentActionText: { color: COLORS.background, fontSize: 16, fontWeight: '600' },
-  paymentCancel: { marginTop: 16, alignItems: 'center' },
-  paymentCancelText: { color: COLORS.accent, fontSize: 14 },
-  adContainer: { marginHorizontal: 30, marginBottom: 24 },
-  statusBadgeText: { color: COLORS.background, fontSize: 12, fontWeight: '600' },
-  rescheduleModal: {
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+  modalContent: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
     padding: 24,
-  },
-  rescheduleTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginBottom: 4 },
-  rescheduleSubtitle: { fontSize: 14, color: COLORS.accent, marginBottom: 16 },
-  rescheduleField: { marginBottom: 16 },
-  rescheduleLabel: { fontSize: 13, color: COLORS.accent, marginBottom: 6, textTransform: 'uppercase' },
-  reschedulePickerButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(30,30,30,0.05)',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    ...SHADOWS.medium,
   },
-  reschedulePickerText: { fontSize: 16, color: COLORS.text },
-  rescheduleActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  rescheduleCancel: { paddingVertical: 12, paddingHorizontal: 18 },
-  rescheduleCancelText: { color: COLORS.accent, fontSize: 15, fontWeight: '600' },
-  rescheduleConfirm: {
-    backgroundColor: COLORS.text,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 12,
+  modalTitle: { ...TYPOGRAPHY.title, color: COLORS.textPrimary, marginBottom: 8 },
+  modalSubtitle: { ...TYPOGRAPHY.body, color: COLORS.textSecondary, marginBottom: 24 },
+  modalButtonPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.success,
+    width: '100%',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
   },
-  rescheduleConfirmText: { color: COLORS.background, fontSize: 15, fontWeight: '600' },
+  modalButtonSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EBF8FF',
+    width: '100%',
+    padding: 16,
+    borderRadius: 16,
+  },
+  modalButtonText: { ...TYPOGRAPHY.button, color: COLORS.textOnPrimary, marginLeft: 8 },
 });
 
 export default HomeScreen;

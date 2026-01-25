@@ -1,6 +1,6 @@
 // /src/screens/ClientsScreen.js
 
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,145 +14,140 @@ import {
 import { SwipeListView } from 'react-native-swipe-list-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
-import { formatCurrency } from '../utils/dateUtils';
+import * as Haptics from 'expo-haptics';
 
-const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
-  accent: '#5D5D5D',
-  cardBackground: '#DAD8D3',
-  status: {
-    paid: '#5CB85C',
-    pending: '#F0AD4E',
-  },
-  actions: {
-    edit: '#2E86C1',
-    delete: '#C70039',
-  }
+import { formatCurrency, getMonthKey } from '../utils/dateUtils';
+import { useClientStore } from '../store/useClientStore';
+import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+
+const normalizePaymentStatus = (entry) => {
+  if (!entry) return 'pending';
+  const rawStatus = typeof entry === 'string' ? entry : entry?.status;
+  if (!rawStatus) return 'pending';
+  return rawStatus === 'paid' || rawStatus === 'pago' ? 'paid' : 'pending';
 };
 
-// O array de dados de exemplo 'allClients' foi REMOVIDO daqui.
+const ClientsScreen = ({ navigation }) => {
+  const clients = useClientStore((state) => state.clients);
+  const clientTerm = useClientStore((state) => state.clientTerm);
+  const togglePayment = useClientStore((state) => state.togglePayment);
 
-const ClientsScreen = ({ clientTerm, navigation, clients, onTogglePayment, onDeleteClient }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const swipeListViewRef = useRef(null);
+  const currentMonthKey = getMonthKey();
 
-  // =======================================================
-  // CHECKPOINT 8: STATUS DO CLIENTE ATUALIZADO
-  // =======================================================
   const clientsWithStatus = useMemo(() => {
-    const currentMonthKey = new Date().toISOString().slice(0, 7);
-    return clients.map(client => {
-      const isPaid = client.payments && client.payments[currentMonthKey] === 'pago';
+    return clients.map((client) => {
+      const status = normalizePaymentStatus(client.payments?.[currentMonthKey]);
+      const isPaid = status === 'paid';
       return {
         ...client,
-        status: isPaid ? 'Pago este mês' : `Vence dia ${client.dueDay}`,
-        statusColor: isPaid ? COLORS.status.paid : COLORS.status.pending,
+        statusLabel: isPaid ? 'Pago' : `Vence dia ${client.dueDay}`,
+        isPaid,
       };
     });
-  }, [clients]);
+  }, [clients, currentMonthKey]);
 
   const filteredClients = useMemo(() => {
-    const q = searchQuery.toLowerCase();
+    const query = searchQuery.toLowerCase();
     return clientsWithStatus
-      .filter((client) => client.name.toLowerCase().includes(q))
-      .slice()
+      .filter((client) => client.name.toLowerCase().includes(query))
       .sort((a, b) => {
-        // pendente primeiro
-        const aPaid = a.status === 'Pago este mês';
-        const bPaid = b.status === 'Pago este mês';
-        if (aPaid !== bPaid) return aPaid ? 1 : -1;
-        // depois por nome
+        if (a.isPaid !== b.isPaid) return a.isPaid ? 1 : -1;
         return a.name.localeCompare(b.name);
       });
   }, [searchQuery, clientsWithStatus]);
 
-  const closeAllOpenRows = () => {
-    swipeListViewRef.current?.closeAllOpenRows?.();
-  };
-
-
-  // Helper to resolve items by key (id)
-  const getItemById = (id) => filteredClients.find(c => c.id === id) || clients.find(c => c.id === id);
+  const closeAllOpenRows = () => swipeListViewRef.current?.closeAllOpenRows?.();
 
   const handleTogglePayment = (client) => {
-    onTogglePayment?.(client.id);
+    togglePayment(client.id, currentMonthKey);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     closeAllOpenRows();
   };
 
   const openWhatsApp = async (digits) => {
-    const d = String(digits || '').replace(/\D+/g, '');
-    if (d.length < 10) {
-      Alert.alert('WhatsApp', 'Telefone inválido para WhatsApp.');
+    const cleanDigits = String(digits || '').replace(/\D+/g, '');
+    if (cleanDigits.length < 10) {
+      Alert.alert('Erro', 'Telefone invalido.');
       return;
     }
-    // Sempre prefixa com código do país BR (55)
-    const url = `https://wa.me/55${d}`;
+    const url = `https://wa.me/55${cleanDigits}`;
     try {
       const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert('WhatsApp não disponível', 'Não foi possível abrir o WhatsApp neste dispositivo.');
+      if (!supported) {
+        Alert.alert('WhatsApp nao disponivel', 'Nao foi possivel abrir o WhatsApp neste dispositivo.');
+        return;
       }
-    } catch (e) {
-      Alert.alert('Erro', 'Ocorreu um erro ao tentar abrir o WhatsApp.');
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert('Erro', 'Nao foi possivel abrir o WhatsApp.');
     }
   };
 
   const renderClientCard = ({ item }) => {
     const formattedValue = formatCurrency(item.value || 0);
-    const paymentStatusLabel = item.status === 'Pago este mês' ? 'Pago' : 'Pendente';
-    const locationLabel = item.location ? item.location : 'Local não informado';
     const phoneDigits = String(item.phone || '').replace(/\D+/g, '');
-    const phoneLabel = item.phone || 'Telefone não informado';
     const canCall = phoneDigits.length >= 10;
+    const avatarBg = item.isPaid ? 'rgba(56,161,105,0.16)' : 'rgba(113,128,150,0.16)';
+    const avatarTextColor = item.isPaid ? COLORS.success : COLORS.textSecondary;
 
     return (
       <TouchableHighlight
         style={styles.cardWrapper}
-        underlayColor={'rgba(30,30,30,0.08)'}
-        onPress={() => navigation.navigate('ClientDetail', { client: item, clientTerm })}
+        underlayColor={COLORS.background}
+        onPress={() => navigation.navigate('ClientDetail', { clientId: item.id })}
       >
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.headerTitleBlock}>
-              <Text style={styles.clientName}>{item.name}</Text>
-              <View
-                style={[styles.statusBadge, { backgroundColor: item.statusColor }]}
+        <View style={styles.card}
+        >
+          <View style={styles.cardHeader}
+          >
+            <View style={styles.headerLeft}
+            >
+              <View style={[styles.avatar, { backgroundColor: avatarBg }]}
               >
-                <Text style={styles.statusBadgeText}>{paymentStatusLabel}</Text>
+                <Text style={[styles.avatarText, { color: avatarTextColor }]}
+                >
+                  {item.name?.charAt(0)?.toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.nameBlock}
+              >
+                <Text style={styles.clientName} numberOfLines={1}
+                >
+                  {item.name}
+                </Text>
+                <Text style={[styles.statusText, item.isPaid ? styles.textSuccess : styles.textWarning]}
+                >
+                  {item.statusLabel}
+                </Text>
               </View>
             </View>
-            <View style={styles.valuePill}>
-              <Icon name="dollar-sign" size={16} color="#1E1E1E" />
-              <Text style={styles.valuePillText}>R$ {formattedValue}</Text>
-            </View>
+            <Text style={styles.valueText}
+            >
+              {formattedValue}
+            </Text>
           </View>
 
-          <View style={styles.cardBody}>
-            <View style={styles.infoRow}>
-              <Icon name="map-pin" size={16} color="rgba(30,30,30,0.6)" />
-              <Text style={styles.infoText}>{locationLabel}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.infoRow}
-              activeOpacity={canCall ? 0.7 : 1}
-              onPress={() => {
-                if (canCall) Linking.openURL(`tel:${phoneDigits}`);
-              }}
-              onLongPress={() => {
-                if (canCall) openWhatsApp(phoneDigits);
-              }}
+          <View style={styles.divider}
+          />
+
+          <View style={styles.cardFooter}
+          >
+            <View style={styles.footerInfo}
             >
-              <Icon name="phone" size={16} color="rgba(30,30,30,0.6)" />
-              <Text style={[styles.infoText, !canCall && { opacity: 0.6 }]}>{phoneLabel}</Text>
-            </TouchableOpacity>
-            <View style={styles.infoRow}>
-              <Icon name="calendar" size={16} color="rgba(30,30,30,0.6)" />
-              <Text style={styles.infoText}>{item.status}</Text>
+              <Icon name="map-pin" size={14} color={COLORS.textSecondary} />
+              <Text style={styles.footerText} numberOfLines={1}
+              >
+                {item.location || 'Sem local'}
+              </Text>
             </View>
+            {canCall ? (
+              <TouchableOpacity onPress={() => openWhatsApp(phoneDigits)}
+              >
+                <Icon name="message-circle" size={20} color={COLORS.success} />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
       </TouchableHighlight>
@@ -160,90 +155,66 @@ const ClientsScreen = ({ clientTerm, navigation, clients, onTogglePayment, onDel
   };
 
   const renderHiddenActions = ({ item }) => (
-    <View style={styles.rowBack}>
-      {/* ESQUERDA → Editar */}
+    <View style={styles.rowBack}
+    >
       <TouchableOpacity
-        style={[styles.backBtn, styles.backBtnLeft]}
+        style={[styles.backBtn, styles.btnEdit]}
         onPress={() => {
-          swipeListViewRef.current?.closeAllOpenRows?.();
-          navigation.navigate('AddClient', { clientToEdit: item, clientTerm });
+          closeAllOpenRows();
+          navigation.navigate('AddClient', { clientId: item.id });
         }}
       >
-        <Icon name="edit-2" size={24} color="#FFF" />
-        <Text style={styles.backBtnText}>Editar</Text>
+        <Icon name="edit-2" size={24} color={COLORS.textOnPrimary} />
       </TouchableOpacity>
-  
-      {/* DIREITA → Pagou */}
+
       <TouchableOpacity
-        style={[styles.backBtn, styles.backBtnRight]}
-        onPress={() => {
-          onTogglePayment?.(item.id);
-          swipeListViewRef.current?.closeAllOpenRows?.();
-        }}
+        style={[styles.backBtn, item.isPaid ? styles.btnUndo : styles.btnPay]}
+        onPress={() => handleTogglePayment(item)}
       >
-        <Icon name="check" size={24} color="#FFF" />
-        <Text style={styles.backBtnText}>Pagou</Text>
+        <Icon name={item.isPaid ? 'rotate-ccw' : 'check'} size={24} color={COLORS.textOnPrimary} />
       </TouchableOpacity>
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{clientTerm}s</Text>
-        <View style={styles.searchContainer}>
-          <Icon name="search" size={20} color={COLORS.placeholder} style={styles.searchIcon} />
+    <SafeAreaView style={styles.safeArea}
+    >
+      <View style={styles.header}
+      >
+        <Text style={styles.title}
+        >
+          {clientTerm}s
+        </Text>
+        <View style={styles.searchBar}
+        >
+          <Icon name="search" size={20} color={COLORS.textSecondary} />
           <TextInput
             style={styles.searchInput}
-            placeholder={`Buscar por nome...`}
-            placeholderTextColor={COLORS.placeholder}
+            placeholder="Buscar..."
+            placeholderTextColor={COLORS.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
         </View>
       </View>
+
       <SwipeListView
         ref={swipeListViewRef}
         data={filteredClients}
         keyExtractor={(item) => item.id}
         renderItem={renderClientCard}
         renderHiddenItem={renderHiddenActions}
-
-        // --- SWIPE CONFIG (Android-like “arrastar até apertar”) ---
-        leftOpenValue={90}
-        rightOpenValue={-90}
-        stopLeftSwipe={100}
-        stopRightSwipe={-100}
-
-        // Ao ativar, dispara ação + fecha a linha com rowMap (mais confiável)
-        onLeftAction={(rowKey, rowMap) => {
-          const item = getItemById(rowKey);
-          if (item) {
-            navigation.navigate('AddClient', { clientToEdit: item, clientTerm });
-          }
-          if (rowMap?.[rowKey]?.closeRow) {
-            rowMap[rowKey].closeRow();
-          } else {
-            closeAllOpenRows();
-          }
-        }}
-        onRightAction={(rowKey, rowMap) => {
-          const item = getItemById(rowKey);
-          if (item) {
-            handleTogglePayment(item);
-          }
-          if (rowMap?.[rowKey]?.closeRow) {
-            rowMap[rowKey].closeRow();
-          } else {
-            closeAllOpenRows();
-          }
-        }}
-
-        contentContainerStyle={styles.listContainer}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        leftOpenValue={75}
+        rightOpenValue={-75}
+        contentContainerStyle={styles.listContent}
+        ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
       />
-      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddClient')}>
-        <Icon name="user-plus" size={24} color={COLORS.background} />
+
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('AddClient')}
+      >
+        <Icon name="plus" size={28} color={COLORS.textOnPrimary} />
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -251,84 +222,65 @@ const ClientsScreen = ({ clientTerm, navigation, clients, onTogglePayment, onDel
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  header: { padding: 30, paddingBottom: 15 },
-  title: { fontSize: 28, fontWeight: 'bold', color: COLORS.text, marginBottom: 20 },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(30,30,30,0.05)', borderRadius: 10, paddingHorizontal: 15 },
-  searchIcon: { marginRight: 10 },
-  searchInput: { flex: 1, height: 50, fontSize: 16, color: COLORS.text },
-  listContainer: { paddingHorizontal: 30, paddingTop: 20, paddingBottom: 120 },
-  cardWrapper: { borderRadius: 22 },
-  card: {
-    backgroundColor: COLORS.background,
-    borderRadius: 22,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.06)',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
-    minHeight: 120,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  headerTitleBlock: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  clientName: { fontSize: 18, fontWeight: '700', color: COLORS.text, flexShrink: 1 },
-  statusBadge: { marginLeft: 12, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  statusBadgePaid: { backgroundColor: COLORS.status.paid },
-  statusBadgePending: { backgroundColor: COLORS.status.pending },
-  statusBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
-  valuePill: {
+  header: { padding: 24, backgroundColor: COLORS.background },
+  title: { ...TYPOGRAPHY.display, color: COLORS.textPrimary, marginBottom: 16 },
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30,30,30,0.05)',
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 16,
+    height: 50,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  valuePillText: { marginLeft: 6, fontSize: 14, fontWeight: '600', color: COLORS.text },
-  cardBody: {},
-  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  infoText: { marginLeft: 8, fontSize: 14, color: COLORS.accent, flexShrink: 1 },
-  emptyText: { textAlign: 'center', marginTop: 50, color: COLORS.placeholder },
-  fab: { position: 'absolute', bottom: 30, right: 30, width: 60, height: 60, borderRadius: 30, backgroundColor: COLORS.text, justifyContent: 'center', alignItems: 'center', elevation: 5, shadowOpacity: 0.3, shadowRadius: 4, shadowOffset: { height: 2, width: 0 } },
+  searchInput: { ...TYPOGRAPHY.body, flex: 1, marginLeft: 12, color: COLORS.textPrimary },
+  listContent: { paddingHorizontal: 24, paddingBottom: 100 },
+  cardWrapper: { borderRadius: 16, ...SHADOWS.small },
+  card: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  nameBlock: { flex: 1 },
+  avatar: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatarText: { ...TYPOGRAPHY.subtitle },
+  clientName: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
+  statusText: { ...TYPOGRAPHY.caption, marginTop: 2 },
+  textSuccess: { color: COLORS.success },
+  textWarning: { color: COLORS.warning },
+  valueText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
+  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  footerInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  footerText: { ...TYPOGRAPHY.caption, marginLeft: 6, color: COLORS.textSecondary },
   rowBack: {
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
-    borderRadius: 26,
+    flex: 1,
+    borderRadius: 16,
     overflow: 'hidden',
+    marginBottom: 16,
   },
-  backBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  backBtn: { width: 75, alignItems: 'center', justifyContent: 'center' },
+  btnEdit: { backgroundColor: COLORS.primary },
+  btnPay: { backgroundColor: COLORS.success },
+  btnUndo: { backgroundColor: COLORS.warning },
+  fab: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 90, // Largura dos botões
-  },
-  backBtnLeft: {
-    backgroundColor: COLORS.actions.edit,
-    left: 0,
-  },
-  backBtnRight: {
-    backgroundColor: COLORS.status.paid,
-    right: 0,
-  },
-  backBtnText: {
-    color: '#FFF',
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '600',
+    bottom: 30,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...SHADOWS.medium,
   },
 });
 

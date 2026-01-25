@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 import { getRegisteredBanner, subscribeToBannerProvider } from '../utils/ads';
+import { COLORS, TYPOGRAPHY } from '../constants/theme';
 
 const TEST_AD_UNIT = 'ca-app-pub-3940256099942544/6300978111';
 
@@ -55,18 +56,17 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: 'rgba(30,30,30,0.12)',
-    backgroundColor: 'rgba(30,30,30,0.04)',
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
     alignItems: 'center',
   },
   placeholderTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1E1E1E',
+    ...TYPOGRAPHY.overline,
+    color: COLORS.textPrimary,
   },
   placeholderCaption: {
-    fontSize: 12,
-    color: 'rgba(30,30,30,0.6)',
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
     marginTop: 4,
   },
 });

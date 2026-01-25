@@ -14,20 +14,28 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
+import { useClientStore } from '../store/useClientStore';
+import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
-  background: '#E4E2DD',
-  text: '#1E1E1E',
-  placeholder: 'rgba(30, 30, 30, 0.5)',
-  accent: '#5D5D5D',
-  card: 'rgba(30,30,30,0.05)',
+  background: THEME.background,
+  surface: THEME.surface,
+  text: THEME.textPrimary,
+  placeholder: THEME.textSecondary,
+  accent: THEME.textSecondary,
+  card: THEME.surface,
+  border: THEME.border,
+  primary: THEME.primary,
+  success: THEME.success,
+  warning: THEME.warning,
+  danger: THEME.danger,
+  textOnPrimary: THEME.textOnPrimary,
 };
 
 const SettingsScreen = ({
   navigation,
   planTier = 'free',
-  clientLimit = 0,
-  clientCount = 0,
+  clientLimit = 3,
   notificationsEnabled = false,
   canAskNotifications = true,
   onRequestNotifications,
@@ -36,6 +44,7 @@ const SettingsScreen = ({
   onSignOut,
   onUpgradePlan,
 }) => {
+  const clientCount = useClientStore((state) => state.clients.length);
   const renderPlanLabel = () => {
     if (planTier === 'premium' || planTier === 'pro') return 'Plano Pro';
     return 'Plano Gratuito';
@@ -84,6 +93,13 @@ const SettingsScreen = ({
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.topBarButton}>
+            <Icon name="arrow-left" size={20} color={COLORS.text} />
+          </TouchableOpacity>
+          <Text style={styles.topBarTitle}>Configurações</Text>
+          <View style={styles.topBarSpacer} />
+        </View>
         <View style={styles.header}>
           <View style={styles.avatarWrapper}>
             <Icon name="user" size={32} color={COLORS.text} />
@@ -107,8 +123,8 @@ const SettingsScreen = ({
                 value={notificationsEnabled}
                 onValueChange={handleNotificationChange}
                 disabled={!notificationPermissionGranted && !canAskNotifications}
-                trackColor={{ false: 'rgba(30,30,30,0.2)', true: COLORS.text }}
-                thumbColor={notificationsEnabled ? COLORS.background : '#f4f3f4'}
+                trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
+                thumbColor={notificationsEnabled ? COLORS.surface : '#f4f3f4'}
               />
               {!notificationPermissionGranted && !canAskNotifications ? (
                 <Text style={styles.helperText}>Ative nas configurações do sistema</Text>
@@ -158,7 +174,7 @@ const SettingsScreen = ({
         </View>
 
         <TouchableOpacity style={styles.signOutButton} onPress={onSignOut}>
-          <Icon name="log-out" size={18} color="#C70039" />
+          <Icon name="log-out" size={18} color={COLORS.danger} />
           <Text style={styles.signOutText}>Sair da conta</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -169,52 +185,75 @@ const SettingsScreen = ({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { padding: 24, paddingBottom: 80 },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+    marginTop: 6,
+  },
+  topBarButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  topBarTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
+  topBarSpacer: { width: 36 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
   avatarWrapper: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   headerTextBlock: { flex: 1 },
-  profileName: { fontSize: 22, fontWeight: '700', color: COLORS.text },
-  profileSubtitle: { fontSize: 14, color: COLORS.accent, marginTop: 4 },
+  profileName: { ...TYPOGRAPHY.title, color: COLORS.text },
+  profileSubtitle: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginTop: 4 },
   card: {
     backgroundColor: COLORS.card,
     borderRadius: 20,
     padding: 18,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: COLORS.accent, marginBottom: 14, textTransform: 'uppercase' },
+  cardTitle: { ...TYPOGRAPHY.overline, color: COLORS.accent, marginBottom: 14 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   row: { flexDirection: 'row', alignItems: 'center' },
-  rowLabel: { fontSize: 15, color: COLORS.text, fontWeight: '600', marginLeft: 12 },
-  helperText: { fontSize: 12, color: COLORS.placeholder, marginTop: 6 },
-  planLabel: { fontSize: 16, fontWeight: '700', color: COLORS.text },
+  rowLabel: { ...TYPOGRAPHY.bodyMedium, color: COLORS.text, marginLeft: 12 },
+  helperText: { ...TYPOGRAPHY.caption, color: COLORS.placeholder, marginTop: 6 },
+  planLabel: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
   planButton: {
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: COLORS.text,
+    backgroundColor: COLORS.primary,
   },
-  planButtonSecondary: { backgroundColor: 'rgba(30,30,30,0.08)' },
-  planButtonText: { color: COLORS.background, fontSize: 13, fontWeight: '600' },
-  planButtonTextSecondary: { color: COLORS.text },
+  planButtonSecondary: { backgroundColor: 'rgba(26,32,44,0.08)' },
+  planButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
+  planButtonTextSecondary: { ...TYPOGRAPHY.buttonSmall, color: COLORS.text },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(30,30,30,0.08)',
+    borderBottomColor: COLORS.border,
   },
-  menuItemText: { marginLeft: 12, color: COLORS.text, fontSize: 15, fontWeight: '600' },
+  menuItemText: { marginLeft: 12, ...TYPOGRAPHY.bodyMedium, color: COLORS.text },
   menuItemDanger: { borderBottomWidth: 0 },
   signOutButton: {
     marginTop: 12,
-    backgroundColor: 'rgba(199,0,57,0.12)',
+    backgroundColor: 'rgba(229,62,62,0.12)',
     borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -222,7 +261,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 24,
   },
-  signOutText: { color: '#C70039', fontSize: 15, fontWeight: '700', marginLeft: 10 },
+  signOutText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.danger, marginLeft: 10 },
 });
 
 export default SettingsScreen;
