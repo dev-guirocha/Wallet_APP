@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "220897851038",
+    "project_id": "wallet-project-45a32",
+    "storage_bucket": "wallet-project-45a32.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:220897851038:android:4bd766f6a2781ace92ad8f",
+        "android_client_info": {
+          "package_name": "com.dev.guirocha.walletapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "220897851038-cln5t30f7q1gurufhp8thcjqlo0rgd40.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dev.guirocha.walletapp",
+            "certificate_hash": "bf0d6d09a790b6552457e3e6416f271ef34876a0"
+          }
+        },
+        {
+          "client_id": "220897851038-sm0hur6f53cd1hhvku5d1ji5iqdcnb52.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEGTavfo7yQ8uayAK1CFgXyzPDI597YnU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "220897851038-sm0hur6f53cd1hhvku5d1ji5iqdcnb52.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "220897851038-e63rj7epfr0s2i01v67neu3ue35i1n94.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.dev.guirocha.wallet-app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
