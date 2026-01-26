@@ -52,6 +52,28 @@ const normalizeExpense = (expense) => {
 const normalizeExpenses = (expenses) =>
   Array.isArray(expenses) ? expenses.map(normalizeExpense) : [];
 
+const normalizeBirthdate = (value) => {
+  if (!value) return '';
+  const dateKey = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? dateKey : '';
+};
+
+const getAgeFromBirthdate = (dateKey) => {
+  if (!dateKey) return null;
+  const parts = String(dateKey).split('-');
+  if (parts.length !== 3) return null;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  const hasBirthdayPassed =
+    today.getMonth() + 1 > month || (today.getMonth() + 1 === month && today.getDate() >= day);
+  if (!hasBirthdayPassed) age -= 1;
+  return age;
+};
+
 export const useClientStore = create(
   persist(
     (set, get) => ({
@@ -62,7 +84,10 @@ export const useClientStore = create(
       userEmail: '',
       userPhone: '',
       userAge: null,
+      userBirthdate: '',
       userProfession: '',
+      planTier: 'free',
+      notificationsEnabled: false,
       isLoading: false,
 
       setClientTerm: (term) => set({ clientTerm: term }),
@@ -73,9 +98,14 @@ export const useClientStore = create(
           userName: profile?.name || '',
           userEmail: profile?.email || '',
           userPhone: profile?.phone || '',
-          userAge: Number.isFinite(profile?.age) ? profile.age : null,
+          userBirthdate: normalizeBirthdate(profile?.birthdate),
+          userAge: Number.isFinite(profile?.age)
+            ? profile.age
+            : getAgeFromBirthdate(profile?.birthdate) ?? null,
           userProfession: profile?.profession || '',
         }),
+      setPlanTier: (tier) => set({ planTier: tier === 'pro' ? 'pro' : 'free' }),
+      setNotificationsEnabled: (enabled) => set({ notificationsEnabled: Boolean(enabled) }),
 
       addClient: (clientData) => {
         const newClient = normalizeClient({
@@ -148,7 +178,7 @@ export const useClientStore = create(
     {
       name: 'wallet-app-storage',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 3,
+      version: 5,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return {
@@ -159,7 +189,10 @@ export const useClientStore = create(
             userEmail: '',
             userPhone: '',
             userAge: null,
+            userBirthdate: '',
             userProfession: '',
+            planTier: 'free',
+            notificationsEnabled: false,
             isLoading: false,
           };
         }
@@ -170,10 +203,20 @@ export const useClientStore = create(
           userName: persistedState.userName || '',
           userEmail: persistedState.userEmail || '',
           userPhone: persistedState.userPhone || '',
+          userBirthdate: normalizeBirthdate(persistedState.userBirthdate),
           userAge: Number.isFinite(persistedState.userAge)
             ? persistedState.userAge
-            : Number(persistedState.userAge) || null,
+            : (() => {
+                const derivedAge = getAgeFromBirthdate(persistedState.userBirthdate);
+                if (Number.isFinite(derivedAge)) {
+                  return derivedAge;
+                }
+                const legacyAge = Number(persistedState.userAge);
+                return Number.isFinite(legacyAge) ? legacyAge : null;
+              })(),
           userProfession: persistedState.userProfession || '',
+          planTier: persistedState.planTier === 'pro' ? 'pro' : 'free',
+          notificationsEnabled: Boolean(persistedState.notificationsEnabled),
           isLoading: false,
         };
       },

@@ -1,5 +1,6 @@
 // App.js
 
+import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, ActivityIndicator, StatusBar } from 'react-native';
@@ -11,13 +12,33 @@ import AuthScreen from './src/screens/AuthScreen';
 import ProfileSetupScreen from './src/screens/ProfileSetupScreen';
 import AppNavigator from './AppNavigator';
 import { COLORS } from './src/constants/theme';
+import { useClientStore } from './src/store/useClientStore';
+import { auth } from './src/utils/firebase';
+import {
+  cancelAllNotificationsAsync,
+  configureNotificationHandling,
+  getNotificationPermissionStatus,
+  rescheduleAllNotificationsAsync,
+} from './src/utils/notifications';
+import { getRememberMePreference } from './src/utils/authStorage';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 const APP_STATE_KEY = '@WalletA:appState';
+const PREMIUM_EMAIL = 'dev.guirocha@gmail.com';
 
 const App = () => {
   const [appState, setAppState] = useState('loading');
-  const [planTier, setPlanTier] = useState('free');
   const [pendingProfile, setPendingProfile] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const clients = useClientStore((state) => state.clients);
+  const notificationsEnabled = useClientStore((state) => state.notificationsEnabled);
+  const setPlanTier = useClientStore((state) => state.setPlanTier);
+  const userEmail = useClientStore((state) => state.userEmail);
+  const userName = useClientStore((state) => state.userName);
+  const userPhone = useClientStore((state) => state.userPhone);
+  const userProfession = useClientStore((state) => state.userProfession);
+  const userBirthdate = useClientStore((state) => state.userBirthdate);
 
   useEffect(() => {
     const initApp = async () => {
@@ -37,6 +58,46 @@ const App = () => {
     initApp();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const rememberMe = await getRememberMePreference();
+      if (!rememberMe && user) {
+        await signOut(auth);
+        setAuthUser(null);
+        setAuthReady(true);
+        return;
+      }
+      setAuthUser(user);
+      setAuthReady(true);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    configureNotificationHandling();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const syncNotifications = async () => {
+      const { granted } = await getNotificationPermissionStatus();
+      if (!active) return;
+      if (!notificationsEnabled || !granted) {
+        await cancelAllNotificationsAsync();
+        return;
+      }
+      await rescheduleAllNotificationsAsync(clients);
+    };
+
+    syncNotifications();
+
+    return () => {
+      active = false;
+    };
+  }, [clients, notificationsEnabled]);
+
   const persistAppState = async (nextState) => {
     setAppState(nextState);
     try {
@@ -51,16 +112,41 @@ const App = () => {
     persistAppState('main');
   };
 
-  const handleUpgradePlan = () => {
-    setPlanTier('pro');
-    alert('Plano atualizado para PRO (Simulação)');
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      // ignore sign out errors
+    }
+    setPendingProfile(null);
+    persistAppState('auth');
   };
 
-  const handleSignOut = () => {
-    persistAppState('welcome');
-  };
+  const hasStoredProfile = Boolean(
+    userName && userEmail && userPhone && userProfession && userBirthdate
+  );
+  const authEmail = authUser?.email?.toLowerCase();
+  const storedEmail = userEmail?.toLowerCase();
+  const emailMatches = authEmail && storedEmail && authEmail === storedEmail;
+  const needsProfile = Boolean(authUser && (!hasStoredProfile || !emailMatches));
 
-  if (appState === 'loading') {
+  useEffect(() => {
+    if (!authUser?.email) return;
+    if (authUser.email.toLowerCase() === PREMIUM_EMAIL) {
+      setPlanTier('pro');
+    }
+  }, [authUser, setPlanTier]);
+
+  useEffect(() => {
+    if (authUser && needsProfile) {
+      setPendingProfile((prev) => ({
+        email: prev?.email || authUser.email || '',
+        name: prev?.name || authUser.displayName || '',
+      }));
+    }
+  }, [authUser, needsProfile]);
+
+  if (appState === 'loading' || !authReady) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
         <ActivityIndicator size="large" color={COLORS.primary} />
@@ -68,41 +154,35 @@ const App = () => {
     );
   }
 
-  if (appState !== 'main') {
-    if (appState === 'welcome') {
-      return <WelcomeScreen onContinue={() => persistAppState('onboarding')} />;
-    }
-    if (appState === 'onboarding') {
-      return <OnboardingScreen onComplete={() => persistAppState('auth')} />;
-    }
-    if (appState === 'auth') {
-      return (
-        <AuthScreen
-          onLoginSuccess={(profile) => {
-            setPendingProfile(profile || null);
-            persistAppState('profile');
-          }}
-        />
-      );
-    }
-    if (appState === 'profile') {
-      return (
-        <ProfileSetupScreen
-          initialProfile={pendingProfile}
-          onComplete={handleProfileComplete}
-        />
-      );
-    }
+  if (appState === 'welcome') {
+    return <WelcomeScreen onContinue={() => persistAppState('onboarding')} />;
+  }
+  if (appState === 'onboarding') {
+    return <OnboardingScreen onComplete={() => persistAppState('auth')} />;
+  }
+  if (!authUser) {
+    return (
+      <AuthScreen
+        onLoginSuccess={(profile) => {
+          setPendingProfile(profile || null);
+          persistAppState('main');
+        }}
+      />
+    );
+  }
+  if (needsProfile) {
+    return (
+      <ProfileSetupScreen
+        initialProfile={pendingProfile}
+        onComplete={handleProfileComplete}
+      />
+    );
   }
 
   return (
     <NavigationContainer>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-      <AppNavigator
-        planTier={planTier}
-        onUpgradePlan={handleUpgradePlan}
-        onSignOut={handleSignOut}
-      />
+      <AppNavigator onSignOut={handleSignOut} />
     </NavigationContainer>
   );
 };

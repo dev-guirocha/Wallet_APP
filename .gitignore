@@ -10,5 +10,8 @@ package-lock.json
 .expo/
 .expo-shared/
 
+# Variáveis de ambiente
+.env
+
 # Arquivos de sistema macOS
 .DS_Store

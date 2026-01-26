@@ -207,6 +207,19 @@ const RevenueInsightsScreen = ({ activeMonth, navigation }) => {
               <Text style={styles.emptyText}>Sem dados de receita.</Text>
             )}
           </View>
+          {incomeData.pieSegments.length > 0 ? (
+            <View style={styles.legendList}>
+              {incomeData.pieSegments.map((segment) => (
+                <View key={segment.id} style={styles.legendRow}>
+                  <View style={[styles.legendDot, { backgroundColor: segment.color }]} />
+                  <Text style={styles.legendLabel} numberOfLines={1}>
+                    {segment.label}
+                  </Text>
+                  <Text style={styles.legendValue}>{formatCurrency(segment.value)}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -288,6 +301,11 @@ const styles = StyleSheet.create({
   emptyText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, textAlign: 'center' },
   chartCard: { marginTop: 24 },
   chartContainer: { alignItems: 'center', marginTop: 10 },
+  legendList: { marginTop: 16 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
+  legendLabel: { ...TYPOGRAPHY.caption, color: COLORS.textPrimary, flex: 1 },
+  legendValue: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
 });
 
 export default RevenueInsightsScreen;

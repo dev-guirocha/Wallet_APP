@@ -40,7 +40,10 @@ export interface AppState {
   userEmail: string;
   userPhone: string;
   userAge: number | null;
+  userBirthdate: string;
   userProfession: string;
+  planTier: 'free' | 'pro';
+  notificationsEnabled: boolean;
   isLoading: boolean;
 
   setClientTerm: (term: string) => void;
@@ -50,8 +53,11 @@ export interface AppState {
     email?: string;
     phone?: string;
     age?: number | null;
+    birthdate?: string;
     profession?: string;
   }) => void;
+  setPlanTier: (tier: 'free' | 'pro') => void;
+  setNotificationsEnabled: (enabled: boolean) => void;
   addClient: (client: Omit<Client, 'id' | 'payments'>) => void;
   updateClient: (id: string, data: Partial<Client>) => void;
   deleteClient: (id: string) => void;

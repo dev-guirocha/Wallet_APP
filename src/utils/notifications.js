@@ -40,6 +40,14 @@ export const requestNotificationPermissionAsync = async () => {
   return false;
 };
 
+export const getNotificationPermissionStatus = async () => {
+  const settings = await Notifications.getPermissionsAsync();
+  return {
+    granted: settings?.granted || settings?.status === 'granted',
+    canAsk: Boolean(settings?.canAskAgain),
+  };
+};
+
 export const shouldAskForNotificationPermission = async () => {
   const settings = await Notifications.getPermissionsAsync();
   return settings?.canAskAgain && !(settings?.granted || settings?.status === 'granted');
@@ -149,4 +157,12 @@ export const rescheduleAllNotificationsAsync = async (clients, overrides = {}) =
   }
 
   return registry;
+};
+
+export const cancelAllNotificationsAsync = async () => {
+  try {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+  } catch (error) {
+    // ignore cancellation errors
+  }
 };

@@ -19,7 +19,7 @@ const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const TAB_INACTIVE = COLORS.textSecondary;
 
-const TabNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
+const TabNavigator = () => {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -55,7 +55,7 @@ const TabNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
       })}
     >
       <Tab.Screen name="Início">
-        {props => <HomeScreen {...props} planTier={planTier} />}
+        {props => <HomeScreen {...props} />}
       </Tab.Screen>
 
       <Tab.Screen name="Gráficos" options={{ title: 'Gráficos' }}>
@@ -74,21 +74,16 @@ const TabNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
   );
 };
 
-const AppNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
+const AppNavigator = ({ onSignOut }) => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs">
         {props => (
-          <TabNavigator
-            {...props}
-            planTier={planTier}
-            onUpgradePlan={onUpgradePlan}
-            onSignOut={onSignOut}
-          />
+          <TabNavigator {...props} />
         )}
       </Stack.Screen>
       <Stack.Screen name="AddClient" options={{ presentation: 'modal' }}>
-        {props => <AddClientScreen {...props} planTier={planTier} />}
+        {props => <AddClientScreen {...props} />}
       </Stack.Screen>
       <Stack.Screen name="ClientDetail">
         {props => <ClientDetailScreen {...props} />}
@@ -100,9 +95,7 @@ const AppNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
         {props => (
           <SettingsScreen
             {...props}
-            planTier={planTier}
             onSignOut={onSignOut}
-            onUpgradePlan={onUpgradePlan}
           />
         )}
       </Stack.Screen>
@@ -113,8 +106,6 @@ const AppNavigator = ({ planTier, onUpgradePlan, onSignOut }) => {
         {props => (
           <PlanDetailsScreen
             {...props}
-            planTier={planTier}
-            onUpgradePlan={onUpgradePlan}
           />
         )}
       </Stack.Screen>

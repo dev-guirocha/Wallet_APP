@@ -1,6 +1,6 @@
 // /src/screens/ProfileSetupScreen.js
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,12 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { useClientStore } from '../store/useClientStore';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
@@ -56,17 +59,78 @@ const formatPhoneBR = (value) => {
 
 const isValidEmail = (value) => /\S+@\S+\.\S+/.test(value);
 
+const formatDateLabel = (date) =>
+  date.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+
+const getDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseBirthdate = (value) => {
+  if (!value) return null;
+  const parts = String(value).split('-');
+  if (parts.length !== 3) return null;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  return new Date(year, month - 1, day);
+};
+
+const getAgeFromBirthdate = (date) => {
+  if (!date) return null;
+  const today = new Date();
+  let age = today.getFullYear() - date.getFullYear();
+  const hasBirthdayPassed =
+    today.getMonth() > date.getMonth() ||
+    (today.getMonth() === date.getMonth() && today.getDate() >= date.getDate());
+  if (!hasBirthdayPassed) age -= 1;
+  return age;
+};
+
 const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
   const setClientTerm = useClientStore((state) => state.setClientTerm);
   const setUserProfile = useClientStore((state) => state.setUserProfile);
 
+  const scrollRef = useRef(null);
+  const inputPositions = useRef({ email: 0, profession: 0 });
+
   const [name, setName] = useState(initialProfile?.name || '');
-  const [age, setAge] = useState(initialProfile?.age ? String(initialProfile.age) : '');
   const [phone, setPhone] = useState(initialProfile?.phone || '');
   const [email, setEmail] = useState(initialProfile?.email || '');
   const [profession, setProfession] = useState(initialProfile?.profession || '');
+  const [birthdate, setBirthdate] = useState(() => {
+    const parsed = parseBirthdate(initialProfile?.birthdate);
+    return parsed || new Date(1995, 0, 1);
+  });
+  const [birthdateDraft, setBirthdateDraft] = useState(birthdate);
+  const [showBirthdatePicker, setShowBirthdatePicker] = useState(false);
 
   const normalizedPhone = useMemo(() => formatPhoneBR(phone), [phone]);
+  const ageNumber = useMemo(() => getAgeFromBirthdate(birthdate), [birthdate]);
+
+  const openBirthdatePicker = () => {
+    setBirthdateDraft(birthdate);
+    setShowBirthdatePicker(true);
+  };
+
+  const handleBirthdateCancel = () => {
+    setShowBirthdatePicker(false);
+  };
+
+  const handleBirthdateConfirm = () => {
+    setBirthdate(birthdateDraft);
+    setShowBirthdatePicker(false);
+  };
 
   const handleContinue = () => {
     const trimmedName = name.trim();
@@ -75,9 +139,13 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
       return;
     }
 
-    const ageNumber = Number(onlyDigits(age));
-    if (!Number.isInteger(ageNumber) || ageNumber <= 0 || ageNumber > 120) {
-      Alert.alert('Atenção', 'Informe uma idade valida.');
+    if (!birthdate || Number.isNaN(birthdate.getTime())) {
+      Alert.alert('Atenção', 'Informe sua data de nascimento.');
+      return;
+    }
+
+    if (birthdate > new Date()) {
+      Alert.alert('Atenção', 'A data de nascimento não pode ser no futuro.');
       return;
     }
 
@@ -106,6 +174,7 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
     setUserProfile({
       name: trimmedName,
       age: ageNumber,
+      birthdate: getDateKey(birthdate),
       phone: phoneDigits,
       email: trimmedEmail,
       profession: trimmedProfession,
@@ -116,86 +185,163 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Vamos personalizar seu perfil</Text>
-          <Text style={styles.subtitle}>Falta pouco para comecar.</Text>
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Nome</Text>
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="Seu nome"
-              placeholderTextColor={COLORS.textSecondary}
-            />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+      >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>Vamos personalizar seu perfil</Text>
+            <Text style={styles.subtitle}>Falta pouco para comecar.</Text>
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Idade</Text>
-            <TextInput
-              style={styles.input}
-              value={age}
-              onChangeText={(text) => setAge(onlyDigits(text).slice(0, 3))}
-              placeholder="Ex: 32"
-              keyboardType="numeric"
-              placeholderTextColor={COLORS.textSecondary}
-            />
+          <View style={styles.card}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Nome</Text>
+              <TextInput
+                style={styles.input}
+                value={name}
+                onChangeText={setName}
+                placeholder="Seu nome"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Data de nascimento</Text>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={openBirthdatePicker}
+              >
+                <Icon name="calendar" size={18} color={COLORS.textPrimary} />
+                <Text style={styles.dateText}>{formatDateLabel(birthdate)}</Text>
+              </TouchableOpacity>
+              {ageNumber !== null ? (
+                <Text style={styles.helperText}>Idade atual: {ageNumber} anos</Text>
+              ) : null}
+              {showBirthdatePicker && Platform.OS === 'ios' ? (
+                <View style={styles.datePickerCard}>
+                  <DateTimePicker
+                    value={birthdateDraft}
+                    mode="date"
+                    display="spinner"
+                    maximumDate={new Date()}
+                    onChange={(event, selectedDate) => {
+                      if (selectedDate) {
+                        setBirthdateDraft(selectedDate);
+                      }
+                    }}
+                  />
+                  <View style={styles.datePickerActions}>
+                    <TouchableOpacity onPress={handleBirthdateCancel}>
+                      <Text style={styles.datePickerActionText}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleBirthdateConfirm}>
+                      <Text style={styles.datePickerActionTextPrimary}>Concluir</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+              {showBirthdatePicker && Platform.OS === 'android' ? (
+                <DateTimePicker
+                  value={birthdate}
+                  mode="date"
+                  display="default"
+                  maximumDate={new Date()}
+                  onChange={(event, selectedDate) => {
+                    if (event?.type === 'dismissed') {
+                      setShowBirthdatePicker(false);
+                      return;
+                    }
+                    if (selectedDate) {
+                      setBirthdate(selectedDate);
+                    }
+                    setShowBirthdatePicker(false);
+                  }}
+                />
+              ) : null}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Telefone</Text>
+              <TextInput
+                style={styles.input}
+                value={normalizedPhone}
+                onChangeText={setPhone}
+                placeholder="(11) 99999-9999"
+                keyboardType="phone-pad"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
+
+            <View
+              style={styles.inputGroup}
+              onLayout={(event) => {
+                inputPositions.current.email = event.nativeEvent.layout.y;
+              }}
+            >
+              <Text style={styles.label}>E-mail</Text>
+              <TextInput
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                onFocus={() => {
+                  scrollRef.current?.scrollTo({
+                    y: Math.max(inputPositions.current.email - 24, 0),
+                    animated: true,
+                  });
+                }}
+                placeholder="voce@email.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
+
+            <View
+              style={styles.inputGroup}
+              onLayout={(event) => {
+                inputPositions.current.profession = event.nativeEvent.layout.y;
+              }}
+            >
+              <Text style={styles.label}>Profissao</Text>
+              <TextInput
+                style={styles.input}
+                value={profession}
+                onChangeText={setProfession}
+                onFocus={() => {
+                  scrollRef.current?.scrollTo({
+                    y: Math.max(inputPositions.current.profession - 24, 0),
+                    animated: true,
+                  });
+                }}
+                placeholder="Ex: Personal Trainer"
+                autoCapitalize="words"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Telefone</Text>
-            <TextInput
-              style={styles.input}
-              value={normalizedPhone}
-              onChangeText={setPhone}
-              placeholder="(11) 99999-9999"
-              keyboardType="phone-pad"
-              placeholderTextColor={COLORS.textSecondary}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>E-mail</Text>
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="voce@email.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              placeholderTextColor={COLORS.textSecondary}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Profissao</Text>
-            <TextInput
-              style={styles.input}
-              value={profession}
-              onChangeText={setProfession}
-              placeholder="Ex: Personal Trainer"
-              autoCapitalize="words"
-              placeholderTextColor={COLORS.textSecondary}
-            />
-          </View>
-        </View>
-
-        <TouchableOpacity style={styles.primaryButton} onPress={handleContinue}>
-          <Text style={styles.primaryButtonText}>Comecar</Text>
-          <Icon name="arrow-right" size={18} color={COLORS.textOnPrimary} style={styles.primaryButtonIcon} />
-        </TouchableOpacity>
-      </ScrollView>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleContinue}>
+            <Text style={styles.primaryButtonText}>Comecar</Text>
+            <Icon name="arrow-right" size={18} color={COLORS.textOnPrimary} style={styles.primaryButtonIcon} />
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  container: { padding: 24, paddingBottom: 60 },
+  flex: { flex: 1 },
+  container: { flexGrow: 1, padding: 24, paddingBottom: 140 },
   header: { marginBottom: 24 },
   title: { ...TYPOGRAPHY.title, color: COLORS.textPrimary, marginBottom: 6 },
   subtitle: { ...TYPOGRAPHY.body, color: COLORS.textSecondary },
@@ -219,6 +365,37 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     backgroundColor: COLORS.background,
   },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: COLORS.background,
+  },
+  dateText: { ...TYPOGRAPHY.body, color: COLORS.textPrimary, marginLeft: 8 },
+  helperText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 6 },
+  datePickerCard: {
+    marginTop: 12,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+  },
+  datePickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  datePickerActionText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textSecondary },
+  datePickerActionTextPrimary: { ...TYPOGRAPHY.buttonSmall, color: COLORS.primary },
   primaryButton: {
     marginTop: 24,
     backgroundColor: COLORS.primary,

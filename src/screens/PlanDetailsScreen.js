@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
+import { useClientStore } from '../store/useClientStore';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
@@ -21,9 +22,12 @@ const FEATURES = [
   'Suporte prioritário e roadmap colaborativo',
 ];
 
-const PlanDetailsScreen = ({ navigation, onUpgradePlan, planTier = 'free' }) => {
+const PlanDetailsScreen = ({ navigation }) => {
+  const planTier = useClientStore((state) => state.planTier);
+  const setPlanTier = useClientStore((state) => state.setPlanTier);
+
   const handleUpgrade = () => {
-    onUpgradePlan?.();
+    setPlanTier('pro');
     Alert.alert('Plano atualizado', 'Você agora faz parte do Wallet Pro!', [
       {
         text: 'Entendi',

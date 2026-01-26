@@ -95,17 +95,14 @@ const formatPhoneBR = (value) => {
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`; // celular 11 dígitos
 };
 
-const AddClientScreen = ({
-  navigation,
-  route,
-  defaultClientTerm = 'Cliente',
-  planTier = 'free',
-  clientLimit = 3,
-}) => {
+const FREE_CLIENT_LIMIT = 3;
+
+const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) => {
   const storeClientTerm = useClientStore((state) => state.clientTerm);
   const addClient = useClientStore((state) => state.addClient);
   const updateClient = useClientStore((state) => state.updateClient);
   const clientCount = useClientStore((state) => state.clients.length);
+  const planTier = useClientStore((state) => state.planTier);
 
   const { clientTerm, clientToEdit, clientId } = route.params ?? {};
   const editingClient = useClientStore((state) =>
@@ -113,6 +110,8 @@ const AddClientScreen = ({
   ) || clientToEdit || null;
   const term = clientTerm || storeClientTerm || defaultClientTerm;
   const isEditing = !!editingClient;
+  const isFreePlan = planTier !== 'pro';
+  const clientLimit = FREE_CLIENT_LIMIT;
 
   const [name, setName] = useState(editingClient?.name ?? '');
   const [location, setLocation] = useState(editingClient?.location ?? '');
@@ -359,11 +358,14 @@ const AddClientScreen = ({
       return;
     }
 
-    if (planTier === 'free' && clientCount >= clientLimit) {
+    if (isFreePlan && clientCount >= clientLimit) {
       Alert.alert(
         'Limite atingido',
         `A versão gratuita permite cadastrar até ${clientLimit} clientes. Conheça o plano pago para liberar cadastros ilimitados.`,
-        [{ text: 'Entendi', style: 'default' }],
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Ver planos', onPress: () => navigation.navigate('PlanDetails') },
+        ],
       );
       return;
     }
@@ -384,7 +386,7 @@ const AddClientScreen = ({
         </TouchableOpacity>
       </View>
       <ScrollView style={styles.container}>
-        {planTier === 'free' && !isEditing ? (
+        {isFreePlan && !isEditing ? (
           <View style={styles.limitNotice}>
             <Text style={styles.limitText}>
               {clientCount < clientLimit

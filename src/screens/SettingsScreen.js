@@ -1,6 +1,6 @@
 // /src/screens/SettingsScreen.js
 
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useClientStore } from '../store/useClientStore';
+import {
+  cancelAllNotificationsAsync,
+  getNotificationPermissionStatus,
+  requestNotificationPermissionAsync,
+} from '../utils/notifications';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
@@ -32,23 +38,42 @@ const COLORS = {
   textOnPrimary: THEME.textOnPrimary,
 };
 
-const SettingsScreen = ({
-  navigation,
-  planTier = 'free',
-  clientLimit = 3,
-  notificationsEnabled = false,
-  canAskNotifications = true,
-  onRequestNotifications,
-  onToggleNotifications,
-  notificationPermissionGranted = false,
-  onSignOut,
-  onUpgradePlan,
-}) => {
+const FREE_CLIENT_LIMIT = 3;
+
+const SettingsScreen = ({ navigation, onSignOut }) => {
   const clientCount = useClientStore((state) => state.clients.length);
+  const planTier = useClientStore((state) => state.planTier);
+  const notificationsEnabled = useClientStore((state) => state.notificationsEnabled);
+  const setNotificationsEnabled = useClientStore((state) => state.setNotificationsEnabled);
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [canAskNotifications, setCanAskNotifications] = useState(true);
   const renderPlanLabel = () => {
     if (planTier === 'premium' || planTier === 'pro') return 'Plano Pro';
     return 'Plano Gratuito';
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      const refreshPermission = async () => {
+        const status = await getNotificationPermissionStatus();
+        if (!active) return;
+        setPermissionGranted(Boolean(status.granted));
+        setCanAskNotifications(Boolean(status.canAsk));
+        if (!status.granted && notificationsEnabled) {
+          setNotificationsEnabled(false);
+          await cancelAllNotificationsAsync();
+        }
+      };
+
+      refreshPermission();
+
+      return () => {
+        active = false;
+      };
+    }, [notificationsEnabled, setNotificationsEnabled])
+  );
 
   const notify = (message) => {
     if (!message) return;
@@ -64,30 +89,24 @@ const SettingsScreen = ({
   };
 
   const handleNotificationChange = async (nextValue) => {
-    if (typeof onToggleNotifications === 'function') {
-      try {
-        const result = await onToggleNotifications(nextValue);
-        if (nextValue) {
-          if (result) {
-            notify('Notificações ativadas.');
-          } else {
-            notify('Não foi possível ativar as notificações. Verifique as permissões do sistema.');
-          }
-        } else {
-          notify('Notificações desativadas.');
-        }
-      } catch (error) {
-        notify('Não foi possível atualizar as notificações.');
-      }
-    } else if (nextValue && typeof onRequestNotifications === 'function') {
-      // Fallback para fluxos legados
-      const granted = await onRequestNotifications();
-      notify(
-        granted
-          ? 'Notificações ativadas.'
-          : 'Não foi possível ativar as notificações. Verifique as permissões do sistema.',
-      );
+    if (!nextValue) {
+      setNotificationsEnabled(false);
+      await cancelAllNotificationsAsync();
+      notify('Notificações desativadas.');
+      return;
     }
+
+    const granted = await requestNotificationPermissionAsync();
+    setNotificationsEnabled(granted);
+    const status = await getNotificationPermissionStatus();
+    setPermissionGranted(Boolean(status.granted));
+    setCanAskNotifications(Boolean(status.canAsk));
+
+    notify(
+      granted
+        ? 'Notificações ativadas.'
+        : 'Não foi possível ativar as notificações. Verifique as permissões do sistema.',
+    );
   };
 
   return (
@@ -122,11 +141,11 @@ const SettingsScreen = ({
               <Switch
                 value={notificationsEnabled}
                 onValueChange={handleNotificationChange}
-                disabled={!notificationPermissionGranted && !canAskNotifications}
+                disabled={!permissionGranted && !canAskNotifications}
                 trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
                 thumbColor={notificationsEnabled ? COLORS.surface : '#f4f3f4'}
               />
-              {!notificationPermissionGranted && !canAskNotifications ? (
+              {!permissionGranted && !canAskNotifications ? (
                 <Text style={styles.helperText}>Ative nas configurações do sistema</Text>
               ) : null}
             </View>
@@ -140,7 +159,7 @@ const SettingsScreen = ({
               <Text style={styles.planLabel}>{renderPlanLabel()}</Text>
               <Text style={styles.helperText}>
                 {planTier === 'free'
-                  ? `${clientCount}/${clientLimit} cadastros disponíveis`
+                  ? `${clientCount}/${FREE_CLIENT_LIMIT} cadastros disponíveis`
                   : `${clientCount} clientes cadastrados`}
               </Text>
             </View>

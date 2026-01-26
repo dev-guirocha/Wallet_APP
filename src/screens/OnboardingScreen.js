@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Swiper from 'react-native-swiper';
 import { Feather as Icon } from '@expo/vector-icons';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { useClientStore } from '../store/useClientStore';
 import {
   requestNotificationPermissionAsync,
   shouldAskForNotificationPermission,
@@ -46,24 +47,45 @@ const onboardingData = [
 const OnboardingScreen = ({
   onComplete,
   onRequestNotifications,
-  notificationsEnabled = false,
-  canAskNotifications = true,
+  notificationsEnabled,
+  canAskNotifications,
 }) => {
   const swiperRef = useRef(null);
+  const storeNotificationsEnabled = useClientStore((state) => state.notificationsEnabled);
+  const setNotificationsEnabled = useClientStore((state) => state.setNotificationsEnabled);
+  const resolvedNotificationsEnabled =
+    typeof notificationsEnabled === 'boolean' ? notificationsEnabled : storeNotificationsEnabled;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [localNotificationsEnabled, setLocalNotificationsEnabled] = useState(
-    Boolean(notificationsEnabled),
+    Boolean(resolvedNotificationsEnabled),
   );
   const [localCanAskNotifications, setLocalCanAskNotifications] = useState(
-    Boolean(canAskNotifications),
+    true,
   );
 
   useEffect(() => {
-    setLocalNotificationsEnabled(Boolean(notificationsEnabled));
-  }, [notificationsEnabled]);
+    setLocalNotificationsEnabled(Boolean(resolvedNotificationsEnabled));
+  }, [resolvedNotificationsEnabled]);
 
   useEffect(() => {
-    setLocalCanAskNotifications(Boolean(canAskNotifications));
+    let active = true;
+
+    const syncPermission = async () => {
+      if (typeof canAskNotifications === 'boolean') {
+        setLocalCanAskNotifications(Boolean(canAskNotifications));
+        return;
+      }
+      const canAsk = await shouldAskForNotificationPermission();
+      if (active) {
+        setLocalCanAskNotifications(Boolean(canAsk));
+      }
+    };
+
+    syncPermission();
+
+    return () => {
+      active = false;
+    };
   }, [canAskNotifications]);
 
   const handlePress = () => {
@@ -85,6 +107,7 @@ const OnboardingScreen = ({
       }
 
       setLocalNotificationsEnabled(granted);
+      setNotificationsEnabled(granted);
 
       if (!onRequestNotifications) {
         const canAsk = await shouldAskForNotificationPermission();
@@ -92,6 +115,7 @@ const OnboardingScreen = ({
       }
     } catch (error) {
       setLocalNotificationsEnabled(false);
+      setNotificationsEnabled(false);
     }
   };
 

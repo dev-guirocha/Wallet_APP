@@ -3,6 +3,7 @@
     "name": "WalletAPP",
     "slug": "wallet-app",
     "version": "1.0.0",
+    "scheme": "walletapp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,17 +14,27 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dev.guirocha.wallet-app"
+      "bundleIdentifier": "com.dev.guirocha.wallet-app",
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#F5F7FA"
       },
-      "package": "com.dev.guirocha.walletapp"
+      "package": "com.dev.guirocha.walletapp",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      "expo-web-browser"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6d820fd9-826d-4218-9827-50f95ca6b8a8"
+      }
     }
   }
 }
