@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Swiper from 'react-native-swiper';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 import { useClientStore } from '../store/useClientStore';
 import {

@@ -15,9 +15,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
-import { Feather as Icon, FontAwesome } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
+import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
+import Config from 'react-native-config';
 import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
@@ -58,10 +60,10 @@ const AuthScreen = ({ onLoginSuccess }) => {
 
   const googleClientIds = useMemo(
     () => ({
-      expo: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
-      ios: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-      android: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-      web: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+    expo: Config.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID || Config.GOOGLE_EXPO_CLIENT_ID,
+    ios: Config.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || Config.GOOGLE_IOS_CLIENT_ID,
+    android: Config.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || Config.GOOGLE_ANDROID_CLIENT_ID,
+    web: Config.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || Config.GOOGLE_WEB_CLIENT_ID,
     }),
     [],
   );

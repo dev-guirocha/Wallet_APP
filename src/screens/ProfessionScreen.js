@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {

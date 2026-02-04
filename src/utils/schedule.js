@@ -45,6 +45,8 @@ const buildBaseAppointment = (client, dateKey, weekdayLabel) => ({
   note: null,
   status: 'scheduled',
   statusUpdatedAt: null,
+  rescheduledTo: null,
+  confirmationSentAt: null,
 });
 
 const shouldClientAttendOnDay = (client, weekdayLabel) => {
@@ -105,6 +107,8 @@ export const getAppointmentsForDate = ({ date, clients = [], overrides = {} }) =
       ...(override.note !== undefined ? { note: override.note } : {}),
       ...(override.status ? { status: override.status } : {}),
       ...(override.statusUpdatedAt ? { statusUpdatedAt: override.statusUpdatedAt } : {}),
+      ...(override.rescheduledTo !== undefined ? { rescheduledTo: override.rescheduledTo } : {}),
+      ...(override.confirmationSentAt !== undefined ? { confirmationSentAt: override.confirmationSentAt } : {}),
     };
 
     if (action) {

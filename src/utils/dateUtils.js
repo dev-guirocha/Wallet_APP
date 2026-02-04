@@ -39,7 +39,29 @@ export const formatCurrency = (value) => {
   });
 };
 
-const parseTimeLabelParts = (label, fallbackHour = 9, fallbackMinute = 0) => {
+export const startOfDay = (date = new Date()) => {
+  const base = date instanceof Date ? new Date(date) : new Date();
+  base.setHours(0, 0, 0, 0);
+  return base;
+};
+
+export const endOfDay = (date = new Date()) => {
+  const base = date instanceof Date ? new Date(date) : new Date();
+  base.setHours(23, 59, 59, 999);
+  return base;
+};
+
+export const formatDateLabel = (date, options = {}) => {
+  if (!(date instanceof Date)) return '';
+  return date.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    ...options,
+  });
+};
+
+export const parseTimeLabelParts = (label, fallbackHour = 9, fallbackMinute = 0) => {
   if (!label) {
     return { hour: fallbackHour, minute: fallbackMinute };
   }

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import { useClientStore } from '../store/useClientStore';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 

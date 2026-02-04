@@ -3,6 +3,14 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  deleteClientFromFirestore,
+  deleteExpenseFromFirestore,
+  upsertClient,
+  upsertExpense,
+  upsertReceivableForClient,
+  upsertReceivableForMonth,
+} from '../utils/firestoreService';
 
 const normalizePaymentStatus = (entry) => {
   if (!entry) return 'pending';
@@ -86,9 +94,22 @@ export const useClientStore = create(
       userAge: null,
       userBirthdate: '',
       userProfession: '',
+      userPhotoURL: '',
+      privacyHideBalances: false,
+      templates: {
+        confirmMsg: '',
+        chargeMsg: '',
+      },
+      scheduleOverrides: {},
+      currentUserId: null,
       planTier: 'free',
       notificationsEnabled: false,
       isLoading: false,
+
+      setCurrentUserId: (uid) => set({ currentUserId: uid || null }),
+      setScheduleOverrides: (overrides) => set({ scheduleOverrides: overrides || {} }),
+      setClients: (clients) => set({ clients: normalizeClients(clients) }),
+      setExpenses: (expenses) => set({ expenses: normalizeExpenses(expenses) }),
 
       setClientTerm: (term) => set({ clientTerm: term }),
 
@@ -104,33 +125,95 @@ export const useClientStore = create(
             : getAgeFromBirthdate(profile?.birthdate) ?? null,
           userProfession: profile?.profession || '',
         }),
+      setUserDoc: (data) =>
+        set((state) => ({
+          userName: data?.name ?? state.userName,
+          userEmail: data?.email ?? state.userEmail,
+          userPhone: data?.phone ?? state.userPhone,
+          userBirthdate: data?.birthdate ?? state.userBirthdate,
+          userProfession: data?.profession ?? state.userProfession,
+          userPhotoURL: data?.photoURL ?? state.userPhotoURL,
+          privacyHideBalances:
+            data?.privacy?.hideBalances !== undefined
+              ? Boolean(data?.privacy?.hideBalances)
+              : state.privacyHideBalances,
+          templates: {
+            confirmMsg: data?.templates?.confirmMsg ?? state.templates?.confirmMsg ?? '',
+            chargeMsg: data?.templates?.chargeMsg ?? state.templates?.chargeMsg ?? '',
+          },
+        })),
+      setPrivacyHideBalances: (hideBalances) =>
+        set({ privacyHideBalances: Boolean(hideBalances) }),
+      setTemplates: (templates) =>
+        set({
+          templates: {
+            confirmMsg: templates?.confirmMsg || '',
+            chargeMsg: templates?.chargeMsg || '',
+          },
+        }),
       setPlanTier: (tier) => set({ planTier: tier === 'pro' ? 'pro' : 'free' }),
       setNotificationsEnabled: (enabled) => set({ notificationsEnabled: Boolean(enabled) }),
 
-      addClient: (clientData) => {
+      addClient: async (clientData) => {
         const newClient = normalizeClient({
           id: uuidv4(),
           payments: {},
           ...clientData,
         });
         set((state) => ({ clients: [...state.clients, newClient] }));
+        const uid = get().currentUserId;
+        if (uid) {
+          try {
+            await upsertClient({ uid, client: newClient });
+            await upsertReceivableForClient({ uid, client: newClient });
+          } catch (error) {
+            // ignore firestore sync errors
+          }
+        }
       },
 
-      updateClient: (id, data) => {
+      updateClient: async (id, data) => {
+        let updatedClient = null;
         set((state) => ({
           clients: state.clients.map((client) =>
-            client.id === id ? normalizeClient({ ...client, ...data, id: client.id }) : client
+            client.id === id
+              ? (() => {
+                  updatedClient = normalizeClient({ ...client, ...data, id: client.id });
+                  return updatedClient;
+                })()
+              : client
           ),
         }));
+        const uid = get().currentUserId;
+        if (uid && updatedClient) {
+          try {
+            await upsertClient({ uid, client: updatedClient });
+            await upsertReceivableForClient({ uid, client: updatedClient });
+          } catch (error) {
+            // ignore firestore sync errors
+          }
+        }
       },
 
-      deleteClient: (id) => {
+      deleteClient: async (id) => {
         set((state) => ({
           clients: state.clients.filter((client) => client.id !== id),
         }));
+        const uid = get().currentUserId;
+        if (uid) {
+          try {
+            await deleteClientFromFirestore({ uid, clientId: id });
+          } catch (error) {
+            // ignore firestore sync errors
+          }
+        }
       },
 
-      togglePayment: (clientId, monthKey) => {
+      togglePayment: async (clientId, monthKey) => {
+        let updatedClient = null;
+        let paymentEntry = null;
+        let isPaidNow = false;
+
         set((state) => ({
           clients: state.clients.map((client) => {
             if (client.id !== clientId) return client;
@@ -140,47 +223,142 @@ export const useClientStore = create(
             const isPaid = normalizePaymentStatus(current) === 'paid';
 
             if (isPaid) {
-              newPayments[monthKey] = {
+              paymentEntry = {
                 status: 'pending',
                 updatedAt: new Date().toISOString(),
               };
+              isPaidNow = false;
             } else {
-              newPayments[monthKey] = {
+              paymentEntry = {
                 status: 'paid',
                 date: new Date().toISOString(),
                 value: client.value,
                 updatedAt: new Date().toISOString(),
               };
+              isPaidNow = true;
             }
 
-            return {
+            newPayments[monthKey] = paymentEntry;
+            updatedClient = {
               ...client,
               payments: newPayments,
             };
+
+            return updatedClient;
           }),
         }));
+
+        const uid = get().currentUserId;
+        if (uid && updatedClient) {
+          try {
+            await upsertClient({ uid, client: updatedClient });
+            await upsertReceivableForMonth({
+              uid,
+              client: updatedClient,
+              monthKey,
+              paid: isPaidNow,
+            });
+            if (isPaidNow) {
+              await upsertReceivableForClient({ uid, client: updatedClient });
+            }
+          } catch (error) {
+            // ignore firestore sync errors
+          }
+        }
       },
 
-      addExpense: (expenseData) => {
+      addExpense: async (expenseData) => {
         const newExpense = normalizeExpense({
           id: uuidv4(),
           ...expenseData,
         });
         set((state) => ({ expenses: [...state.expenses, newExpense] }));
+        const uid = get().currentUserId;
+        if (uid) {
+          try {
+            await upsertExpense({ uid, expense: newExpense });
+          } catch (error) {
+            // ignore firestore sync errors
+          }
+        }
       },
 
-      deleteExpense: (id) => {
+      deleteExpense: async (id) => {
         set((state) => ({
           expenses: state.expenses.filter((expense) => expense.id !== id),
         }));
+        const uid = get().currentUserId;
+        if (uid) {
+          try {
+            await deleteExpenseFromFirestore({ uid, expenseId: id });
+          } catch (error) {
+            // ignore firestore sync errors
+          }
+        }
       },
     }),
     {
       name: 'wallet-app-storage',
       storage: createJSONStorage(() => AsyncStorage),
-      version: 5,
+      version: 6,
       migrate: (persistedState) => {
-        if (!persistedState || typeof persistedState !== 'object') {
+        try {
+          if (!persistedState || typeof persistedState !== 'object') {
+            return {
+              clients: [],
+              expenses: [],
+              clientTerm: 'Cliente',
+              userName: '',
+              userEmail: '',
+              userPhone: '',
+              userAge: null,
+              userBirthdate: '',
+              userProfession: '',
+              userPhotoURL: '',
+              privacyHideBalances: false,
+              templates: {
+                confirmMsg: '',
+                chargeMsg: '',
+              },
+              scheduleOverrides: {},
+              currentUserId: null,
+              planTier: 'free',
+              notificationsEnabled: false,
+              isLoading: false,
+            };
+          }
+          return {
+            clients: normalizeClients(persistedState.clients),
+            expenses: normalizeExpenses(persistedState.expenses),
+            clientTerm: persistedState.clientTerm || 'Cliente',
+            userName: persistedState.userName || '',
+            userEmail: persistedState.userEmail || '',
+            userPhone: persistedState.userPhone || '',
+            userBirthdate: normalizeBirthdate(persistedState.userBirthdate),
+            userAge: Number.isFinite(persistedState.userAge)
+              ? persistedState.userAge
+              : (() => {
+                  const derivedAge = getAgeFromBirthdate(persistedState.userBirthdate);
+                  if (Number.isFinite(derivedAge)) {
+                    return derivedAge;
+                  }
+                  const legacyAge = Number(persistedState.userAge);
+                  return Number.isFinite(legacyAge) ? legacyAge : null;
+                })(),
+            userProfession: persistedState.userProfession || '',
+            userPhotoURL: persistedState.userPhotoURL || '',
+            privacyHideBalances: Boolean(persistedState.privacyHideBalances),
+            templates: {
+              confirmMsg: persistedState.templates?.confirmMsg || '',
+              chargeMsg: persistedState.templates?.chargeMsg || '',
+            },
+            scheduleOverrides: persistedState.scheduleOverrides || {},
+            currentUserId: persistedState.currentUserId || null,
+            planTier: persistedState.planTier === 'pro' ? 'pro' : 'free',
+            notificationsEnabled: Boolean(persistedState.notificationsEnabled),
+            isLoading: false,
+          };
+        } catch (error) {
           return {
             clients: [],
             expenses: [],
@@ -191,34 +369,19 @@ export const useClientStore = create(
             userAge: null,
             userBirthdate: '',
             userProfession: '',
+            userPhotoURL: '',
+            privacyHideBalances: false,
+            templates: {
+              confirmMsg: '',
+              chargeMsg: '',
+            },
+            scheduleOverrides: {},
+            currentUserId: null,
             planTier: 'free',
             notificationsEnabled: false,
             isLoading: false,
           };
         }
-        return {
-          clients: normalizeClients(persistedState.clients),
-          expenses: normalizeExpenses(persistedState.expenses),
-          clientTerm: persistedState.clientTerm || 'Cliente',
-          userName: persistedState.userName || '',
-          userEmail: persistedState.userEmail || '',
-          userPhone: persistedState.userPhone || '',
-          userBirthdate: normalizeBirthdate(persistedState.userBirthdate),
-          userAge: Number.isFinite(persistedState.userAge)
-            ? persistedState.userAge
-            : (() => {
-                const derivedAge = getAgeFromBirthdate(persistedState.userBirthdate);
-                if (Number.isFinite(derivedAge)) {
-                  return derivedAge;
-                }
-                const legacyAge = Number(persistedState.userAge);
-                return Number.isFinite(legacyAge) ? legacyAge : null;
-              })(),
-          userProfession: persistedState.userProfession || '',
-          planTier: persistedState.planTier === 'pro' ? 'pro' : 'free',
-          notificationsEnabled: Boolean(persistedState.notificationsEnabled),
-          isLoading: false,
-        };
       },
     }
   )

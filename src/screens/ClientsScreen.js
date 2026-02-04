@@ -8,16 +8,15 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableHighlight,
-  Alert,
-  Linking,
 } from 'react-native';
 import { SwipeListView } from 'react-native-swipe-list-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import * as Haptics from 'expo-haptics';
 
 import { formatCurrency, getMonthKey } from '../utils/dateUtils';
 import { useClientStore } from '../store/useClientStore';
+import { buildPhoneE164FromRaw, openWhatsAppWithMessage } from '../utils/whatsapp';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
 const normalizePaymentStatus = (entry) => {
@@ -66,29 +65,15 @@ const ClientsScreen = ({ navigation }) => {
     closeAllOpenRows();
   };
 
-  const openWhatsApp = async (digits) => {
-    const cleanDigits = String(digits || '').replace(/\D+/g, '');
-    if (cleanDigits.length < 10) {
-      Alert.alert('Erro', 'Telefone invalido.');
-      return;
-    }
-    const url = `https://wa.me/55${cleanDigits}`;
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (!supported) {
-        Alert.alert('WhatsApp nao disponivel', 'Nao foi possivel abrir o WhatsApp neste dispositivo.');
-        return;
-      }
-      await Linking.openURL(url);
-    } catch (error) {
-      Alert.alert('Erro', 'Nao foi possivel abrir o WhatsApp.');
-    }
+  const openWhatsApp = async (client) => {
+    const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
+    await openWhatsAppWithMessage({ phoneE164, message: '' });
   };
 
   const renderClientCard = ({ item }) => {
     const formattedValue = formatCurrency(item.value || 0);
-    const phoneDigits = String(item.phone || '').replace(/\D+/g, '');
-    const canCall = phoneDigits.length >= 10;
+    const phoneE164 = item.phoneE164 || buildPhoneE164FromRaw(item.phoneRaw || item.phone || '');
+    const canCall = Boolean(phoneE164);
     const avatarBg = item.isPaid ? 'rgba(56,161,105,0.16)' : 'rgba(113,128,150,0.16)';
     const avatarTextColor = item.isPaid ? COLORS.success : COLORS.textSecondary;
 
@@ -143,7 +128,7 @@ const ClientsScreen = ({ navigation }) => {
               </Text>
             </View>
             {canCall ? (
-              <TouchableOpacity onPress={() => openWhatsApp(phoneDigits)}
+              <TouchableOpacity onPress={() => openWhatsApp(item)}
               >
                 <Icon name="message-circle" size={20} color={COLORS.success} />
               </TouchableOpacity>

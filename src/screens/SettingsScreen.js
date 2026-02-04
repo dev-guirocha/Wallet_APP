@@ -13,7 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import { useFocusEffect } from '@react-navigation/native';
 import { useClientStore } from '../store/useClientStore';
 import {
@@ -45,6 +45,7 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
   const planTier = useClientStore((state) => state.planTier);
   const notificationsEnabled = useClientStore((state) => state.notificationsEnabled);
   const setNotificationsEnabled = useClientStore((state) => state.setNotificationsEnabled);
+  const userName = useClientStore((state) => state.userName);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [canAskNotifications, setCanAskNotifications] = useState(true);
   const renderPlanLabel = () => {
@@ -124,7 +125,9 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
             <Icon name="user" size={32} color={COLORS.text} />
           </View>
           <View style={styles.headerTextBlock}>
-            <Text style={styles.profileName}>Olá!</Text>
+            <Text style={styles.profileName}>
+              {userName ? `Olá, ${userName}` : 'Olá!'}
+            </Text>
             <Text style={styles.profileSubtitle}>Personalize sua experiência</Text>
           </View>
         </View>
@@ -178,17 +181,33 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Conta</Text>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation?.navigate('Editar Perfil')}
+          >
             <Icon name="user" size={18} color={COLORS.text} />
             <Text style={styles.menuItemText}>Editar perfil</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation?.navigate('Alterar Foto')}
+          >
             <Icon name="image" size={18} color={COLORS.text} />
             <Text style={styles.menuItemText}>Alterar foto</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation?.navigate('Privacidade')}
+          >
             <Icon name="shield" size={18} color={COLORS.text} />
             <Text style={styles.menuItemText}>Preferências de privacidade</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.menuItem, styles.menuItemLast]}
+            onPress={() => navigation?.navigate('CobrancasHoje')}
+          >
+            <Icon name="message-circle" size={18} color={COLORS.text} />
+            <Text style={styles.menuItemText}>Cobranças de hoje</Text>
           </TouchableOpacity>
         </View>
 
@@ -268,6 +287,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
+  menuItemLast: { borderBottomWidth: 0 },
   menuItemText: { marginLeft: 12, ...TYPOGRAPHY.bodyMedium, color: COLORS.text },
   menuItemDanger: { borderBottomWidth: 0 },
   signOutButton: {

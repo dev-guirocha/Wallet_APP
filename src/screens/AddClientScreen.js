@@ -11,11 +11,13 @@ import {
   ScrollView,
   Alert,
   Switch,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useClientStore } from '../store/useClientStore';
+import { buildPhoneE164FromRaw } from '../utils/whatsapp';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
@@ -331,11 +333,14 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
       return;
     }
 
+    const phoneE164 = buildPhoneE164FromRaw(phoneDigits);
+
     const newClientData = {
       name,
       location,
       phone,
       phoneRaw: phoneDigits,
+      phoneE164,
       days: selectedDays,
       time: classTimeLabel,
       value: currencyNumber,
@@ -385,161 +390,170 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
           <Text style={styles.saveButtonText}>{isEditing ? 'Salvar alterações' : 'Salvar'}</Text>
         </TouchableOpacity>
       </View>
-      <ScrollView style={styles.container}>
-        {isFreePlan && !isEditing ? (
-          <View style={styles.limitNotice}>
-            <Text style={styles.limitText}>
-              {clientCount < clientLimit
-                ? `Versão gratuita: ${clientCount}/${clientLimit} clientes.`
-                : 'Limite gratuito atingido. Conheça o Plano Pro para adicionar mais.'}
-            </Text>
-          </View>
-        ) : null}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Nome do {term}</Text>
-          <TextInput style={styles.input} value={name} onChangeText={setName} />
-        </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Local de Atendimento</Text>
-          <TextInput style={styles.input} value={location} onChangeText={setLocation} />
-        </View>
-        <View style={styles.inputGroup}>
-        <Text style={styles.label}>Telefone *</Text>
-        <TextInput
-          style={styles.input}
-          value={phone}
-          onChangeText={(text) => setPhone(formatPhoneBR(text))}
-          keyboardType="phone-pad"
-          placeholder="(99) 99999-9999"
-        />
-        </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Dias da Semana</Text>
-          <View style={styles.weekdaysContainer}>
-            {WEEKDAYS.map(day => (
-              <TouchableOpacity
-                key={day}
-                style={[styles.dayButton, selectedDays.includes(day) && styles.dayButtonSelected]}
-                onPress={() => toggleDay(day)}
-              >
-                <Text style={[styles.dayText, selectedDays.includes(day) && styles.dayTextSelected]}>{day}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        {selectedDays.length > 0 ? (
-          <View style={styles.dayTimesContainer}>
-            <Text style={styles.dayTimesTitle}>Horários por dia (opcional)</Text>
-            {selectedDays.map((day) => {
-              const overrideLabel = dayTimes[day];
-              const displayLabel = overrideLabel || classTimeLabel || 'Selecionar';
-              return (
-                <View key={day} style={styles.dayTimeRow}>
-                  <Text style={styles.dayTimeLabel}>{day}</Text>
-                  <TouchableOpacity
-                    style={styles.dayTimeButton}
-                    onPress={() => openDayTimePicker(day)}
-                  >
-                    <Text style={styles.dayTimeButtonText}>{displayLabel}</Text>
-                    <Icon name="clock" size={18} color={COLORS.text} />
-                  </TouchableOpacity>
-                  {overrideLabel ? (
-                    <TouchableOpacity
-                      style={styles.dayTimeReset}
-                      onPress={() =>
-                        setDayTimes((prev) => {
-                          const next = { ...prev };
-                          delete next[day];
-                          return next;
-                        })
-                      }
-                    >
-                      <Icon name="x" size={16} color={COLORS.placeholder} />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-        ) : null}
-        <View style={styles.row}>
-        <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
-          <Text style={styles.label}>Horário padrão</Text>
-          <TouchableOpacity
-            style={[styles.input, styles.timePickerButton]}
-            onPress={openDefaultTimePicker}
-          >
-            <Text style={classTimeLabel ? styles.timePickerValue : styles.timePickerPlaceholder}>
-              {classTimeLabel || 'Selecionar horário'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {Platform.OS === 'ios' && showTimePicker ? (
-          <View style={styles.iosPickerContainer}>
-            <View style={styles.iosPickerHeader}>
-              <TouchableOpacity onPress={handleTimePickerCancel}>
-                <Text style={styles.iosPickerAction}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleTimePickerDone}>
-                <Text style={[styles.iosPickerAction, styles.iosPickerActionPrimary]}>Concluir</Text>
-              </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={styles.keyboardWrapper}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          style={styles.container}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {isFreePlan && !isEditing ? (
+            <View style={styles.limitNotice}>
+              <Text style={styles.limitText}>
+                {clientCount < clientLimit
+                  ? `Versão gratuita: ${clientCount}/${clientLimit} clientes.`
+                  : 'Limite gratuito atingido. Conheça o Plano Pro para adicionar mais.'}
+              </Text>
             </View>
-            <DateTimePicker
-              value={classTimeDate}
-              mode="time"
-              display="spinner"
-              is24Hour
-              onChange={handleTimePickerChange}
-            />
+          ) : null}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Nome do {term}</Text>
+            <TextInput style={styles.input} value={name} onChangeText={setName} />
           </View>
-        ) : null}
-        <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-          <Text style={styles.label}>Valor Mensal</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Local de Atendimento</Text>
+            <TextInput style={styles.input} value={location} onChangeText={setLocation} />
+          </View>
+          <View style={styles.inputGroup}>
+          <Text style={styles.label}>Telefone *</Text>
           <TextInput
             style={styles.input}
-            value={monthlyValue}
-            onChangeText={(text) => {
-              const digits = onlyDigits(text);
-              const formatted = formatCurrencyBRFromDigits(digits);
-              setMonthlyValue(formatted);
-            }}
-            keyboardType="numeric"
-            placeholder="R$ 0,00"
+            value={phone}
+            onChangeText={(text) => setPhone(formatPhoneBR(text))}
+            keyboardType="phone-pad"
+            placeholder="(99) 99999-9999"
+          />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Dias da Semana</Text>
+            <View style={styles.weekdaysContainer}>
+              {WEEKDAYS.map(day => (
+                <TouchableOpacity
+                  key={day}
+                  style={[styles.dayButton, selectedDays.includes(day) && styles.dayButtonSelected]}
+                  onPress={() => toggleDay(day)}
+                >
+                  <Text style={[styles.dayText, selectedDays.includes(day) && styles.dayTextSelected]}>{day}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          {selectedDays.length > 0 ? (
+            <View style={styles.dayTimesContainer}>
+              <Text style={styles.dayTimesTitle}>Horários por dia (opcional)</Text>
+              {selectedDays.map((day) => {
+                const overrideLabel = dayTimes[day];
+                const displayLabel = overrideLabel || classTimeLabel || 'Selecionar';
+                return (
+                  <View key={day} style={styles.dayTimeRow}>
+                    <Text style={styles.dayTimeLabel}>{day}</Text>
+                    <TouchableOpacity
+                      style={styles.dayTimeButton}
+                      onPress={() => openDayTimePicker(day)}
+                    >
+                      <Text style={styles.dayTimeButtonText}>{displayLabel}</Text>
+                      <Icon name="clock" size={18} color={COLORS.text} />
+                    </TouchableOpacity>
+                    {overrideLabel ? (
+                      <TouchableOpacity
+                        style={styles.dayTimeReset}
+                        onPress={() =>
+                          setDayTimes((prev) => {
+                            const next = { ...prev };
+                            delete next[day];
+                            return next;
+                          })
+                        }
+                      >
+                        <Icon name="x" size={16} color={COLORS.placeholder} />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+          <View style={styles.row}>
+          <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
+            <Text style={styles.label}>Horário padrão</Text>
+            <TouchableOpacity
+              style={[styles.input, styles.timePickerButton]}
+              onPress={openDefaultTimePicker}
+            >
+              <Text style={classTimeLabel ? styles.timePickerValue : styles.timePickerPlaceholder}>
+                {classTimeLabel || 'Selecionar horário'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {Platform.OS === 'ios' && showTimePicker ? (
+            <View style={styles.iosPickerContainer}>
+              <View style={styles.iosPickerHeader}>
+                <TouchableOpacity onPress={handleTimePickerCancel}>
+                  <Text style={styles.iosPickerAction}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleTimePickerDone}>
+                  <Text style={[styles.iosPickerAction, styles.iosPickerActionPrimary]}>Concluir</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={classTimeDate}
+                mode="time"
+                display="spinner"
+                is24Hour
+                onChange={handleTimePickerChange}
+              />
+            </View>
+          ) : null}
+          <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
+            <Text style={styles.label}>Valor Mensal</Text>
+            <TextInput
+              style={styles.input}
+              value={monthlyValue}
+              onChangeText={(text) => {
+                const digits = onlyDigits(text);
+                const formatted = formatCurrencyBRFromDigits(digits);
+                setMonthlyValue(formatted);
+              }}
+              keyboardType="numeric"
+              placeholder="R$ 0,00"
+              />
+            </View>
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Data de Pagamento</Text>
+            <TextInput
+              style={styles.input}
+              value={dueDate}
+              onChangeText={(text) => {
+                const digits = onlyDigits(text).slice(0, 2);
+                setDueDate(digits);
+              }}
+              keyboardType="numeric"
+              placeholder="Dia (1-31)"
+              />
+            </View>
+          <View style={[styles.inputGroup, styles.switchGroup]}>
+            <Text style={styles.switchLabel}>Notificar pagamento</Text>
+            <Switch
+              value={notificationsPaymentOptIn}
+              onValueChange={setNotificationsPaymentOptIn}
+              trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
+              thumbColor={notificationsPaymentOptIn ? COLORS.background : '#f4f3f4'}
             />
           </View>
-        </View>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Data de Pagamento</Text>
-          <TextInput
-            style={styles.input}
-            value={dueDate}
-            onChangeText={(text) => {
-              const digits = onlyDigits(text).slice(0, 2);
-              setDueDate(digits);
-            }}
-            keyboardType="numeric"
-            placeholder="Dia (1-31)"
+          <View style={[styles.inputGroup, styles.switchGroup]}>
+            <Text style={styles.switchLabel}>Lembretes de compromissos</Text>
+            <Switch
+              value={notificationsScheduleOptIn}
+              onValueChange={setNotificationsScheduleOptIn}
+              trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
+              thumbColor={notificationsScheduleOptIn ? COLORS.background : '#f4f3f4'}
             />
           </View>
-        <View style={[styles.inputGroup, styles.switchGroup]}>
-          <Text style={styles.switchLabel}>Notificar pagamento</Text>
-          <Switch
-            value={notificationsPaymentOptIn}
-            onValueChange={setNotificationsPaymentOptIn}
-            trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
-            thumbColor={notificationsPaymentOptIn ? COLORS.background : '#f4f3f4'}
-          />
-        </View>
-        <View style={[styles.inputGroup, styles.switchGroup]}>
-          <Text style={styles.switchLabel}>Lembretes de compromissos</Text>
-          <Switch
-            value={notificationsScheduleOptIn}
-            onValueChange={setNotificationsScheduleOptIn}
-            trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
-            thumbColor={notificationsScheduleOptIn ? COLORS.background : '#f4f3f4'}
-          />
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
       {Platform.OS === 'android' && showTimePicker ? (
         <DateTimePicker
           value={classTimeDate}
@@ -567,6 +581,7 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: COLORS.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
   saveButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
   container: { padding: 20 },
+  keyboardWrapper: { flex: 1 },
   inputGroup: { marginBottom: 25 },
   label: { ...TYPOGRAPHY.subtitle, color: COLORS.accent, marginBottom: 8 },
   input: {

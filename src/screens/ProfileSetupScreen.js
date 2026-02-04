@@ -13,10 +13,11 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { useClientStore } from '../store/useClientStore';
+import { saveUserProfile } from '../utils/firestoreService';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
 const healthProfessions = [
@@ -100,6 +101,7 @@ const getAgeFromBirthdate = (date) => {
 const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
   const setClientTerm = useClientStore((state) => state.setClientTerm);
   const setUserProfile = useClientStore((state) => state.setUserProfile);
+  const currentUserId = useClientStore((state) => state.currentUserId);
 
   const scrollRef = useRef(null);
   const inputPositions = useRef({ email: 0, profession: 0 });
@@ -132,7 +134,7 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
     setShowBirthdatePicker(false);
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       Alert.alert('Atenção', 'Informe seu nome.');
@@ -179,6 +181,23 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
       email: trimmedEmail,
       profession: trimmedProfession,
     });
+
+    if (currentUserId) {
+      try {
+        await saveUserProfile({
+          uid: currentUserId,
+          profile: {
+            name: trimmedName,
+            birthdate: getDateKey(birthdate),
+            phone: phoneDigits,
+            email: trimmedEmail,
+            profession: trimmedProfession,
+          },
+        });
+      } catch (error) {
+        // ignore firestore profile errors
+      }
+    }
 
     onComplete?.();
   };

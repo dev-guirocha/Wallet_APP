@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import Config from 'react-native-config';
 
 import { getRegisteredBanner, subscribeToBannerProvider } from '../utils/ads';
 import { COLORS, TYPOGRAPHY } from '../constants/theme';
@@ -8,7 +9,7 @@ const TEST_AD_UNIT = 'ca-app-pub-3940256099942544/6300978111';
 
 const resolveAdUnitId = (placement) => {
   const envKey = `EXPO_PUBLIC_ADMOB_BANNER_${String(placement || 'default').toUpperCase()}`;
-  const fromEnv = typeof process !== 'undefined' ? process.env?.[envKey] : undefined;
+  const fromEnv = Config?.[envKey];
   return fromEnv || TEST_AD_UNIT;
 };
 

@@ -10,9 +10,10 @@ import {
   ScrollView,
   Platform,
   Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { useClientStore } from '../store/useClientStore';
@@ -95,98 +96,108 @@ const AddExpenseScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.amountContainer}>
-          <Text style={styles.amountLabel}>Valor da despesa</Text>
-          <TextInput
-            style={styles.amountInput}
-            value={valueStr}
-            onChangeText={(text) => setValueStr(formatCurrencyRaw(text))}
-            keyboardType="numeric"
-            placeholder="R$ 0,00"
-            placeholderTextColor={COLORS.textSecondary}
-            autoFocus
-          />
-        </View>
-
-        <View style={styles.formCard}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Descricao</Text>
+      <KeyboardAvoidingView
+        style={styles.keyboardWrapper}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <View style={styles.amountContainer}>
+            <Text style={styles.amountLabel}>Valor da despesa</Text>
             <TextInput
-              style={styles.input}
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Ex: Anuncio Instagram"
+              style={styles.amountInput}
+              value={valueStr}
+              onChangeText={(text) => setValueStr(formatCurrencyRaw(text))}
+              keyboardType="numeric"
+              placeholder="R$ 0,00"
               placeholderTextColor={COLORS.textSecondary}
+              autoFocus
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Data</Text>
-            <TouchableOpacity
-              style={styles.dateSelector}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Icon name="calendar" size={20} color={COLORS.textPrimary} />
-              <Text style={styles.dateText}>
-                {date.toLocaleDateString('pt-BR', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              </Text>
-            </TouchableOpacity>
-            {showDatePicker ? (
-              <DateTimePicker
-                value={date}
-                mode="date"
-                display="default"
-                onChange={onDateChange}
+          <View style={styles.formCard}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Descricao</Text>
+              <TextInput
+                style={styles.input}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Ex: Anuncio Instagram"
+                placeholderTextColor={COLORS.textSecondary}
               />
-            ) : null}
-          </View>
+            </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Categoria</Text>
-            <View style={styles.categoryGrid}>
-              {CATEGORIES.map((cat) => {
-                const isSelected = category.id === cat.id;
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[
-                      styles.catItem,
-                      isSelected && styles.catItemSelected,
-                      isSelected && { borderColor: cat.color, backgroundColor: `${cat.color}15` },
-                    ]}
-                    onPress={() => setCategory(cat)}
-                  >
-                    <Icon
-                      name={cat.icon}
-                      size={20}
-                      color={isSelected ? cat.color : COLORS.textSecondary}
-                    />
-                    <Text
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Data</Text>
+              <TouchableOpacity
+                style={styles.dateSelector}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Icon name="calendar" size={20} color={COLORS.textPrimary} />
+                <Text style={styles.dateText}>
+                  {date.toLocaleDateString('pt-BR', {
+                    day: '2-digit',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </TouchableOpacity>
+              {showDatePicker ? (
+                <DateTimePicker
+                  value={date}
+                  mode="date"
+                  display="default"
+                  onChange={onDateChange}
+                />
+              ) : null}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Categoria</Text>
+              <View style={styles.categoryGrid}>
+                {CATEGORIES.map((cat) => {
+                  const isSelected = category.id === cat.id;
+                  return (
+                    <TouchableOpacity
+                      key={cat.id}
                       style={[
-                        styles.catText,
-                        isSelected && { color: cat.color, fontWeight: '700' },
+                        styles.catItem,
+                        isSelected && styles.catItemSelected,
+                        isSelected && { borderColor: cat.color, backgroundColor: `${cat.color}15` },
                       ]}
+                      onPress={() => setCategory(cat)}
                     >
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+                      <Icon
+                        name={cat.icon}
+                        size={20}
+                        color={isSelected ? cat.color : COLORS.textSecondary}
+                      />
+                      <Text
+                        style={[
+                          styles.catText,
+                          isSelected && { color: cat.color, fontWeight: '700' },
+                        ]}
+                      >
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
+  keyboardWrapper: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

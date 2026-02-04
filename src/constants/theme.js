@@ -29,17 +29,17 @@ export const SHADOWS = {
 };
 
 export const TYPOGRAPHY = {
-  hero: { fontSize: 32, fontWeight: '700', fontFamily: 'System' },
-  display: { fontSize: 28, fontWeight: '700', fontFamily: 'System' },
-  title: { fontSize: 22, fontWeight: '700', fontFamily: 'System' },
-  subtitle: { fontSize: 16, fontWeight: '600', fontFamily: 'System' },
-  body: { fontSize: 15, fontWeight: '400', fontFamily: 'System' },
-  bodyMedium: { fontSize: 15, fontWeight: '600', fontFamily: 'System' },
-  caption: { fontSize: 12, fontWeight: '500', fontFamily: 'System' },
-  button: { fontSize: 16, fontWeight: '700', fontFamily: 'System' },
-  buttonSmall: { fontSize: 14, fontWeight: '600', fontFamily: 'System' },
+  hero: { fontSize: 34, fontWeight: '700', fontFamily: 'System' },
+  display: { fontSize: 30, fontWeight: '700', fontFamily: 'System' },
+  title: { fontSize: 24, fontWeight: '700', fontFamily: 'System' },
+  subtitle: { fontSize: 18, fontWeight: '600', fontFamily: 'System' },
+  body: { fontSize: 17, fontWeight: '400', fontFamily: 'System' },
+  bodyMedium: { fontSize: 17, fontWeight: '600', fontFamily: 'System' },
+  caption: { fontSize: 14, fontWeight: '500', fontFamily: 'System' },
+  button: { fontSize: 18, fontWeight: '700', fontFamily: 'System' },
+  buttonSmall: { fontSize: 16, fontWeight: '600', fontFamily: 'System' },
   overline: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     fontFamily: 'System',
     letterSpacing: 0.6,

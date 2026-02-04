@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
+import Icon from 'react-native-vector-icons/Feather';
 
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
 import { useClientStore } from '../store/useClientStore';
+import { buildPhoneE164FromRaw, openWhatsAppWithMessage } from '../utils/whatsapp';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 
 const COLORS = {
@@ -24,7 +25,6 @@ const COLORS = {
 };
 
 // Helpers
-const onlyDigits = (str = '') => String(str).replace(/\D+/g, '');
 const formatCurrencyBR = (value) => {
   const num = Number(value) || 0;
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num);
@@ -38,20 +38,6 @@ const normalizePaymentStatus = (entry) => {
 };
 
 const getCurrentMonthKey = () => new Date().toISOString().slice(0, 7); // 'AAAA-MM'
-
-const openWhatsApp = async (digits, msg) => {
-  try {
-    const appUrl = `whatsapp://send?phone=55${digits}&text=${encodeURIComponent(msg)}`;
-    const webUrl = `https://wa.me/55${digits}?text=${encodeURIComponent(msg)}`;
-    const supported = await Linking.canOpenURL(appUrl);
-    if (supported) {
-      return Linking.openURL(appUrl);
-    }
-    return Linking.openURL(webUrl);
-  } catch (e) {
-    return Linking.openURL(`https://wa.me/55${digits}?text=${encodeURIComponent(msg)}`);
-  }
-};
 
 // Retorna o próximo compromisso (hoje ou nos próximos 6 dias) considerando overrides por dia
 const getNextAppointment = (client) => {
@@ -173,11 +159,11 @@ const ClientDetailScreen = ({ route, navigation }) => {
 
   const handleWhatsAppConfirm = async () => {
     if (!activeClient?.phone) return;
-    const digits = onlyDigits(activeClient.phone);
-    if (!digits) return;
+    const phoneE164 = activeClient.phoneE164 || buildPhoneE164FromRaw(activeClient.phoneRaw || activeClient.phone || '');
+    if (!phoneE164) return;
     const dia = nextAppt.label || 'hoje';
     const msg = `Olá, ${activeClient.name}!\n\nConfirmando seu horário de ${dia} às ${timeDisplay}.\n\nSe precisar reagendar, por favor me avise. Obrigado!`;
-    await openWhatsApp(digits, msg);
+    await openWhatsAppWithMessage({ phoneE164, message: msg });
   };
 
   const handleGenerateReceipt = async () => {
