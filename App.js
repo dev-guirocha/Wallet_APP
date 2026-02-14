@@ -1,10 +1,11 @@
 import 'react-native-gesture-handler';
 
 // App.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, ActivityIndicator, StatusBar } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -23,7 +24,14 @@ import {
 import { getRememberMePreference } from './src/utils/authStorage';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { getDocs, onSnapshot, orderBy, query, Timestamp, where } from 'firebase/firestore';
-import { endOfDay, formatCurrency, getDateKey, parseTimeLabelParts, startOfDay } from './src/utils/dateUtils';
+import {
+  endOfDay,
+  formatCurrency,
+  getDateKey,
+  getMonthKey,
+  parseTimeLabelParts,
+  startOfDay,
+} from './src/utils/dateUtils';
 import { getAppointmentsForDate } from './src/utils/schedule';
 import WidgetBridge from './src/native/WidgetBridge';
 import {
@@ -32,6 +40,7 @@ import {
   scheduleChargeNotifications,
 } from './src/services/notificationService';
 import {
+  cleanupDuplicateReceivables,
   ensureUserDefaults,
   ensureReceivablesForClients,
   migrateLocalDataToFirestore,
@@ -46,6 +55,7 @@ import {
 
 const APP_STATE_KEY = '@WalletA:appState';
 const PREMIUM_EMAIL = 'dev.guirocha@gmail.com';
+const RECEIVABLE_CLEANUP_KEY = '@WalletA:cleanupReceivables:v1';
 
 const buildUpcomingAppointmentsForWidget = ({ clients = [], overrides = {} }) => {
   const now = new Date();
@@ -78,11 +88,28 @@ const buildUpcomingAppointmentsForWidget = ({ clients = [], overrides = {} }) =>
   }));
 };
 
+const getLocalDateKey = (date) => {
+  if (!(date instanceof Date)) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const App = () => {
   const [appState, setAppState] = useState('loading');
   const [pendingProfile, setPendingProfile] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [authUser, setAuthUser] = useState(null);
+  const [storeHydrated, setStoreHydrated] = useState(() => {
+    try {
+      return useClientStore.persist?.hasHydrated?.() ?? true;
+    } catch (error) {
+      return true;
+    }
+  });
+  const [userDocReady, setUserDocReady] = useState(false);
+  const previousAuthUidRef = useRef(null);
   const clients = useClientStore((state) => state.clients);
   const scheduleOverrides = useClientStore((state) => state.scheduleOverrides);
   const notificationsEnabled = useClientStore((state) => state.notificationsEnabled);
@@ -97,6 +124,7 @@ const App = () => {
   const setExpenses = useClientStore((state) => state.setExpenses);
   const setUserDoc = useClientStore((state) => state.setUserDoc);
   const setScheduleOverrides = useClientStore((state) => state.setScheduleOverrides);
+  const syncPaymentsFromReceivables = useClientStore((state) => state.syncPaymentsFromReceivables);
 
   useEffect(() => {
     const initApp = async () => {
@@ -117,6 +145,36 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    const persistApi = useClientStore.persist;
+    if (!persistApi) {
+      setStoreHydrated(true);
+      return () => {};
+    }
+
+    if (persistApi.hasHydrated?.()) {
+      setStoreHydrated(true);
+      return () => {};
+    }
+
+    let active = true;
+    const unsubscribe = persistApi.onFinishHydration?.(() => {
+      if (active) setStoreHydrated(true);
+    });
+    persistApi.rehydrate?.();
+
+    return () => {
+      active = false;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!auth) {
+      setAuthUser(null);
+      setAuthReady(true);
+      return () => {};
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       const rememberMe = await getRememberMePreference();
       if (!rememberMe && user) {
@@ -241,7 +299,9 @@ const App = () => {
 
   const handleSignOut = async () => {
     try {
-      await signOut(auth);
+      if (auth) {
+        await signOut(auth);
+      }
     } catch (error) {
       // ignore sign out errors
     }
@@ -249,13 +309,13 @@ const App = () => {
     persistAppState('auth');
   };
 
-  const hasStoredProfile = Boolean(
-    userName && userEmail && userPhone && userProfession && userBirthdate
-  );
   const authEmail = authUser?.email?.toLowerCase();
-  const storedEmail = userEmail?.toLowerCase();
-  const emailMatches = authEmail && storedEmail && authEmail === storedEmail;
-  const needsProfile = Boolean(authUser && (!hasStoredProfile || !emailMatches));
+  const effectiveEmail = (userEmail || authEmail || '').toLowerCase();
+  const hasStoredProfile = Boolean(
+    userName && effectiveEmail && userPhone && userProfession && userBirthdate
+  );
+  const emailMatches = !authEmail || !effectiveEmail || authEmail === effectiveEmail;
+  const needsProfile = Boolean(authUser && userDocReady && (!hasStoredProfile || !emailMatches));
 
   useEffect(() => {
     if (!authUser?.email) return;
@@ -265,18 +325,31 @@ const App = () => {
   }, [authUser, setPlanTier]);
 
   useEffect(() => {
+    if (!authReady || !storeHydrated) return;
+
     if (!authUser?.uid) {
+      previousAuthUidRef.current = null;
+      setUserDocReady(false);
       setCurrentUserId(null);
-      setClients([]);
-      setExpenses([]);
       setScheduleOverrides({});
       return;
     }
+
+    const previousUid = previousAuthUidRef.current;
+    if (previousUid && previousUid !== authUser.uid) {
+      // Evita exibir dados de outro usuário ao trocar de conta.
+      setClients([]);
+      setExpenses([]);
+      setScheduleOverrides({});
+    }
+    previousAuthUidRef.current = authUser.uid;
+    setUserDocReady(false);
 
     let unsubscribeUser = () => {};
     let unsubscribeClients = () => {};
     let unsubscribeExpenses = () => {};
     let unsubscribeAppointments = () => {};
+    let unsubscribeReceivables = () => {};
     let active = true;
 
     const bootstrapFirestore = async () => {
@@ -289,8 +362,8 @@ const App = () => {
         await ensureUserDefaults({
           uid,
           profile: {
-            name: localState.userName,
-            email: localState.userEmail,
+            name: localState.userName || authUser.displayName || '',
+            email: localState.userEmail || authUser.email || '',
             phone: localState.userPhone,
             birthdate: localState.userBirthdate,
             profession: localState.userProfession,
@@ -298,6 +371,14 @@ const App = () => {
             templates: localState.templates,
           },
         });
+
+        const cleanupKey = `${RECEIVABLE_CLEANUP_KEY}:${uid}`;
+        const hasCleaned = await AsyncStorage.getItem(cleanupKey);
+        if (!hasCleaned) {
+          cleanupDuplicateReceivables({ uid })
+            .then(() => AsyncStorage.setItem(cleanupKey, '1'))
+            .catch(() => {});
+        }
       } catch (error) {
         // ignore bootstrap errors
       }
@@ -307,10 +388,13 @@ const App = () => {
       unsubscribeUser = onSnapshot(
         userDocRef(uid),
         (snapshot) => {
+          setUserDocReady(true);
           if (!snapshot.exists()) return;
           setUserDoc(snapshot.data());
         },
-        () => {}
+        () => {
+          setUserDocReady(true);
+        }
       );
 
       unsubscribeClients = onSnapshot(
@@ -319,6 +403,16 @@ const App = () => {
           const items = snapshot.docs
             .map((doc) => ({ id: doc.id, ...doc.data() }))
             .filter((client) => !client.deletedAt);
+          if (items.length === 0) {
+            const localClients = useClientStore.getState().clients;
+            if (Array.isArray(localClients) && localClients.length > 0) {
+              migrateLocalDataToFirestore({
+                uid,
+                localState: useClientStore.getState(),
+              }).catch(() => {});
+              return;
+            }
+          }
           setClients(items);
           ensureReceivablesForClients({ uid, clients: items }).catch(() => {});
         },
@@ -331,7 +425,42 @@ const App = () => {
           const items = snapshot.docs
             .map((doc) => ({ id: doc.id, ...doc.data() }))
             .filter((expense) => !expense.deletedAt);
+          if (items.length === 0) {
+            const localExpenses = useClientStore.getState().expenses;
+            if (Array.isArray(localExpenses) && localExpenses.length > 0) {
+              migrateLocalDataToFirestore({
+                uid,
+                localState: useClientStore.getState(),
+              }).catch(() => {});
+              return;
+            }
+          }
           setExpenses(items);
+        },
+        () => {}
+      );
+
+      unsubscribeReceivables = onSnapshot(
+        userReceivablesCollection(uid),
+        (snapshot) => {
+          const entries = snapshot.docs
+            .map((doc) => {
+              const data = doc.data();
+              const clientId = data.clientId;
+              const dueDate = data.dueDate?.toDate?.() || (data.dueDate ? new Date(data.dueDate) : null);
+              const monthKey = data.monthKey || (dueDate ? getMonthKey(dueDate) : null);
+              if (!clientId || !monthKey) return null;
+              return {
+                clientId,
+                monthKey,
+                paid: Boolean(data.paid),
+                amount: Number(data.amount ?? 0),
+                paidAt: data.paidAt?.toDate?.() || data.paidAt || null,
+              };
+            })
+            .filter(Boolean);
+
+          syncPaymentsFromReceivables(entries);
         },
         () => {}
       );
@@ -357,19 +486,22 @@ const App = () => {
             const data = doc.data();
             const startAtDate = data.startAt?.toDate?.() || null;
             const startAtMs = startAtDate ? startAtDate.getTime() : 0;
-            const dateKey = data.dateKey || (startAtDate ? getDateKey(startAtDate) : null);
+            const dateKey = data.dateKey || (startAtDate ? getLocalDateKey(startAtDate) : null);
             const clientId = data.clientId;
             if (!dateKey || !clientId) return;
 
             const action = data.action;
             const status = data.status;
             const hasPendingWrites = doc.metadata.hasPendingWrites;
+            const safeTime = data.time || '00:00';
             const updatedAtDate =
               data.updatedAt?.toDate?.() ||
               (data.updatedAt ? new Date(data.updatedAt) : null) ||
               startAtDate;
             const updatedAtMs = updatedAtDate ? updatedAtDate.getTime() : 0;
-            const overrideKey = `${dateKey}:${clientId}`;
+            const fallbackKey = `${clientId}-${dateKey}-${safeTime}`;
+            const appointmentKey = data.appointmentKey || doc.id || fallbackKey;
+            const overrideKey = appointmentKey;
 
             const priority =
               action === 'skip' || action === 'cancel' || action === 'remove'
@@ -400,15 +532,20 @@ const App = () => {
             };
 
             if (!overrides[dateKey]) overrides[dateKey] = {};
-            overrides[dateKey][clientId] = {
+            overrides[dateKey][overrideKey] = {
+              appointmentKey,
               action: data.action,
+              clientId,
               name: data.name,
-              time: data.time,
+              time: safeTime,
               location: data.location,
               note: data.note,
               status: data.status,
               statusUpdatedAt: data.statusUpdatedAt?.toDate?.() || data.statusUpdatedAt || null,
               rescheduledTo: data.rescheduledTo?.toDate?.() || data.rescheduledTo || null,
+              confirmationStatus: data.confirmationStatus,
+              confirmationRespondedAt:
+                data.confirmationRespondedAt?.toDate?.() || data.confirmationRespondedAt || null,
               confirmationSentAt:
                 data.confirmationSentAt?.toDate?.() || data.confirmationSentAt || null,
             };
@@ -428,8 +565,19 @@ const App = () => {
       unsubscribeClients();
       unsubscribeExpenses();
       unsubscribeAppointments();
+      unsubscribeReceivables();
     };
-  }, [authUser, setClients, setCurrentUserId, setExpenses, setScheduleOverrides, setUserDoc]);
+  }, [
+    authReady,
+    authUser,
+    storeHydrated,
+    setClients,
+    setCurrentUserId,
+    setExpenses,
+    setScheduleOverrides,
+    setUserDoc,
+    syncPaymentsFromReceivables,
+  ]);
 
   useEffect(() => {
     if (authUser && needsProfile) {
@@ -440,59 +588,63 @@ const App = () => {
     }
   }, [authUser, needsProfile]);
 
-  if (appState === 'loading' || !authReady) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
-  }
+  const renderAppContent = () => {
+    if (appState === 'loading' || !authReady || !storeHydrated || (authUser && !userDocReady)) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      );
+    }
 
-  if (appState === 'welcome') {
-    return <WelcomeScreen onContinue={() => persistAppState('onboarding')} />;
-  }
-  if (appState === 'onboarding') {
-    return <OnboardingScreen onComplete={() => persistAppState('auth')} />;
-  }
-  if (!authUser) {
-    return (
-      <AuthScreen
-        onLoginSuccess={(profile) => {
-          setPendingProfile(profile || null);
-          persistAppState('main');
-        }}
-      />
-    );
-  }
-  if (needsProfile) {
-    return (
-      <ProfileSetupScreen
-        initialProfile={pendingProfile}
-        onComplete={handleProfileComplete}
-      />
-    );
-  }
+    if (appState === 'welcome') {
+      return <WelcomeScreen onContinue={() => persistAppState('onboarding')} />;
+    }
+    if (appState === 'onboarding') {
+      return <OnboardingScreen onComplete={() => persistAppState('auth')} />;
+    }
+    if (!authUser) {
+      return (
+        <AuthScreen
+          onLoginSuccess={(profile) => {
+            setPendingProfile(profile || null);
+            persistAppState('main');
+          }}
+        />
+      );
+    }
+    if (needsProfile) {
+      return (
+        <ProfileSetupScreen
+          initialProfile={pendingProfile}
+          onComplete={handleProfileComplete}
+        />
+      );
+    }
 
-  const linking = {
-    prefixes: ['myapp://'],
-    config: {
-      screens: {
-        MainTabs: {
-          screens: {
-            Agenda: 'agenda',
+    const linking = {
+      prefixes: ['walletapp://', 'myapp://'],
+      config: {
+        screens: {
+          MainTabs: {
+            screens: {
+              Agenda: 'agenda',
+            },
           },
+          CobrancasHoje: 'charges',
         },
-        CobrancasHoje: 'charges',
       },
-    },
+    };
+
+    return (
+      <NavigationContainer linking={linking}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+        <AppNavigator onSignOut={handleSignOut} />
+      </NavigationContainer>
+    );
   };
 
-  return (
-    <NavigationContainer linking={linking}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-      <AppNavigator onSignOut={handleSignOut} />
-    </NavigationContainer>
-  );
+  return <SafeAreaProvider>{renderAppContent()}</SafeAreaProvider>;
 };
 
 export default App;

@@ -11,9 +11,11 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Alert,
+  Platform,
+  ToastAndroid,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 import { onSnapshot, orderBy, query, Timestamp, where } from 'firebase/firestore';
 
 import {
@@ -22,16 +24,20 @@ import {
   formatDateLabel,
   formatTimeLabelFromDate,
   getDateKey,
+  getMonthKey,
   parseTimeLabelParts,
 } from '../utils/dateUtils';
 import { getAppointmentsForDate } from '../utils/schedule';
 import { useClientStore } from '../store/useClientStore';
+import { auth } from '../utils/firebase';
 import { generateAndShareReceipt } from '../utils/receiptGenerator';
 import { userReceivablesCollection } from '../utils/firestoreRefs';
 import {
   createAppointmentOverride,
+  rescheduleAppointment,
   updateUserPrivacy,
-  markReceivablePaid,
+  markReceivableAsPaid,
+  markReceivablesPaidByIds,
   registerReceivableChargeSent,
 } from '../utils/firestoreService';
 import {
@@ -52,6 +58,35 @@ const getGreetingLabel = () => {
 const DEFAULT_CONFIRM_TEMPLATE = 'Boa noite {nome}! Aula confirmada para {hora}!';
 const DEFAULT_CHARGE_TEMPLATE = 'Olá {nome}, sua cobrança vence em {data}.';
 
+const buildAppointmentRenderKey = (appointment) =>
+  appointment?.appointmentKey ||
+  appointment?.id ||
+  `${appointment?.clientId || 'client'}-${appointment?.dateKey || 'date'}-${appointment?.time || '00:00'}`;
+
+const dedupeAppointments = (appointments = []) => {
+  const seen = new Set();
+  return appointments.filter((appointment) => {
+    const key = buildAppointmentRenderKey(appointment);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const resolveConfirmationStatus = (appointment) => {
+  const rawStatus = appointment?.confirmationStatus;
+  if (rawStatus === 'confirmed' || rawStatus === 'canceled' || rawStatus === 'sent') {
+    return rawStatus;
+  }
+  if (appointment?.confirmationSentAt) return 'sent';
+  return 'pending';
+};
+
+const isPaymentMarkedPaid = (entry) => {
+  const rawStatus = typeof entry === 'object' ? entry?.status : entry;
+  return rawStatus === 'paid' || rawStatus === 'pago';
+};
+
 const HomeScreen = ({ navigation }) => {
   const clients = useClientStore((state) => state.clients);
   const userName = useClientStore((state) => state.userName);
@@ -60,6 +95,8 @@ const HomeScreen = ({ navigation }) => {
   const setPrivacyHideBalances = useClientStore((state) => state.setPrivacyHideBalances);
   const templates = useClientStore((state) => state.templates);
   const scheduleOverrides = useClientStore((state) => state.scheduleOverrides);
+  const setScheduleOverrides = useClientStore((state) => state.setScheduleOverrides);
+  const setClientPaymentStatus = useClientStore((state) => state.setClientPaymentStatus);
 
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [receivables, setReceivables] = useState([]);
@@ -68,6 +105,13 @@ const HomeScreen = ({ navigation }) => {
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [rescheduleVisible, setRescheduleVisible] = useState(false);
   const [rescheduleTarget, setRescheduleTarget] = useState(null);
+  const [payingReceivableIds, setPayingReceivableIds] = useState([]);
+  const resolveActiveUid = () => currentUserId || auth?.currentUser?.uid || null;
+
+  const getLocalDateKey = (value) => {
+    const base = value instanceof Date ? value : new Date(value);
+    return getDateKey(new Date(base.getFullYear(), base.getMonth(), base.getDate(), 12, 0, 0));
+  };
 
   const monthLabel = useMemo(() => {
     const month = new Date().toLocaleDateString('pt-BR', { month: 'long' });
@@ -130,12 +174,17 @@ const HomeScreen = ({ navigation }) => {
 
   const upcomingPayments = useMemo(() => {
     const now = new Date();
+    const currentMonthKey = getMonthKey(now);
     const endOfCurrentMonth = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     const clientsMap = new Map(clients.map((client) => [client.id, client]));
+    const monthEntries = new Set();
 
-    return receivables
+    const fromReceivables = receivables
       .map((receivable) => {
         const dueDate = receivable.dueDate?.toDate?.() || (receivable.dueDate ? new Date(receivable.dueDate) : null);
+        if (dueDate) {
+          monthEntries.add(`${receivable.clientId}-${getMonthKey(dueDate)}`);
+        }
         const client = clientsMap.get(receivable.clientId) || null;
         const name = client?.name || receivable.clientName || 'Cliente';
         const amount = Number(receivable.amount ?? client?.value ?? 0);
@@ -153,7 +202,48 @@ const HomeScreen = ({ navigation }) => {
           client,
           phoneE164,
         };
+      });
+
+    const fromClientsFallback = clients
+      .map((client) => {
+        const dueDay = Number(client?.dueDay || 0);
+        if (!client?.id || !Number.isInteger(dueDay) || dueDay <= 0) return null;
+        if (isPaymentMarkedPaid(client?.payments?.[currentMonthKey])) return null;
+
+        const fallbackKey = `${client.id}-${currentMonthKey}`;
+        if (monthEntries.has(fallbackKey)) return null;
+
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const safeDueDay = Math.min(dueDay, daysInMonth);
+        const dueDate = new Date(now.getFullYear(), now.getMonth(), safeDueDay, 12, 0, 0, 0);
+        const amount = Number(client?.value ?? 0);
+        const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
+        const syntheticReceivable = {
+          id: fallbackKey,
+          clientId: client.id,
+          clientName: client.name || 'Cliente',
+          amount,
+          monthKey: currentMonthKey,
+          dueDate,
+          paid: false,
+          synthetic: true,
+        };
+
+        return {
+          id: fallbackKey,
+          clientId: client.id,
+          name: client.name || 'Cliente',
+          amount,
+          dueDate,
+          isOverdue: now.getTime() > endOfDay(dueDate).getTime(),
+          receivable: syntheticReceivable,
+          client,
+          phoneE164,
+        };
       })
+      .filter(Boolean);
+
+    return [...fromReceivables, ...fromClientsFallback]
       .filter((item) => item.dueDate && item.dueDate.getTime() <= endOfCurrentMonth.getTime())
       .sort((a, b) => {
         if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
@@ -164,7 +254,8 @@ const HomeScreen = ({ navigation }) => {
 
   const todayAppointments = useMemo(() => {
     const today = new Date();
-    return getAppointmentsForDate({ date: today, clients, overrides: scheduleOverrides });
+    const appointments = getAppointmentsForDate({ date: today, clients, overrides: scheduleOverrides });
+    return dedupeAppointments(appointments);
   }, [clients, scheduleOverrides]);
 
   const handleTogglePaymentFromMenu = async () => {
@@ -173,19 +264,7 @@ const HomeScreen = ({ navigation }) => {
       return;
     }
 
-    try {
-      await markReceivablePaid({
-        uid: currentUserId,
-        client: selectedPayment.client || { id: selectedPayment.clientId, name: selectedPayment.name, value: selectedPayment.amount },
-        receivableId: selectedPayment.id,
-        dueDate: selectedPayment.dueDate,
-        amount: selectedPayment.amount,
-        paid: true,
-      });
-    } catch (error) {
-      Alert.alert('Pagamento', 'Não foi possível atualizar o recebimento.');
-    }
-    setSelectedPayment(null);
+    await handleMarkReceivablePaid(selectedPayment);
   };
 
   const handleReceiptGeneration = async () => {
@@ -210,12 +289,21 @@ const HomeScreen = ({ navigation }) => {
     return baseDate;
   };
 
+  const resolveAppointmentId = (appointment, fallbackDateKey, fallbackTime) => {
+    if (appointment?.appointmentKey) return appointment.appointmentKey;
+    if (!appointment?.clientId) return '';
+    return `${appointment.clientId}-${fallbackDateKey}-${fallbackTime}`;
+  };
+
   const handleConfirmAppointment = async (appointment) => {
     if (!appointment || !currentUserId) return;
     const client = clients.find((item) => item.id === appointment.clientId);
     const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
     const appointmentDate = buildAppointmentStartAt(appointment);
     const safeTime = appointment.time || '00:00';
+    const dateKey = appointment.dateKey || getDateKey(appointmentDate);
+    const appointmentId = resolveAppointmentId(appointment, dateKey, safeTime);
+    if (!appointmentId) return;
 
     const lastConfirmation = appointment.confirmationSentAt;
     if (lastConfirmation) {
@@ -226,6 +314,26 @@ const HomeScreen = ({ navigation }) => {
         lastDate.getMonth() === today.getMonth() &&
         lastDate.getFullYear() === today.getFullYear()
       ) {
+        try {
+          await createAppointmentOverride({
+            uid: currentUserId,
+            appointmentId,
+            payload: {
+              appointmentKey: appointmentId,
+              clientId: appointment.clientId,
+              dateKey,
+              name: appointment.name,
+              time: safeTime,
+              location: appointment.location || '',
+              status: 'scheduled',
+              confirmationStatus: 'sent',
+              confirmationSentAt: Timestamp.fromDate(lastDate),
+              startAt: Timestamp.fromDate(appointmentDate),
+            },
+          });
+        } catch (error) {
+          // ignore backfill errors
+        }
         Alert.alert('Confirmação', 'Você já confirmou este compromisso hoje.');
         return;
       }
@@ -242,17 +350,19 @@ const HomeScreen = ({ navigation }) => {
     if (!opened) return;
 
     try {
-      const dateKey = appointment.dateKey || getDateKey(appointmentDate);
       await createAppointmentOverride({
         uid: currentUserId,
-        appointmentId: `${appointment.clientId}-${dateKey}-${safeTime}`,
+        appointmentId,
         payload: {
+          appointmentKey: appointmentId,
           clientId: appointment.clientId,
           dateKey,
           name: appointment.name,
           time: safeTime,
           location: appointment.location || '',
           startAt: Timestamp.fromDate(appointmentDate),
+          confirmationStatus: 'sent',
+          confirmationRespondedAt: null,
           confirmationSentAt: Timestamp.fromDate(new Date()),
         },
       });
@@ -264,13 +374,16 @@ const HomeScreen = ({ navigation }) => {
   const handleCompleteAppointment = async (appointment) => {
     if (!appointment || !currentUserId) return;
     const appointmentDate = buildAppointmentStartAt(appointment);
-    const dateKey = appointment.dateKey || getDateKey(appointmentDate);
     const safeTime = appointment.time || '00:00';
+    const dateKey = appointment.dateKey || getDateKey(appointmentDate);
+    const appointmentId = resolveAppointmentId(appointment, dateKey, safeTime);
+    if (!appointmentId) return;
     try {
       await createAppointmentOverride({
         uid: currentUserId,
-        appointmentId: `${appointment.clientId}-${dateKey}-${safeTime}`,
+        appointmentId,
         payload: {
+          appointmentKey: appointmentId,
           clientId: appointment.clientId,
           dateKey,
           name: appointment.name,
@@ -283,6 +396,36 @@ const HomeScreen = ({ navigation }) => {
       });
     } catch (error) {
       Alert.alert('Agenda', 'Não foi possível concluir o compromisso.');
+    }
+  };
+
+  const handleSetAppointmentConfirmation = async (appointment, confirmationStatus) => {
+    if (!appointment || !currentUserId) return;
+    const appointmentDate = buildAppointmentStartAt(appointment);
+    const safeTime = appointment.time || '00:00';
+    const dateKey = appointment.dateKey || getDateKey(appointmentDate);
+    const appointmentId = resolveAppointmentId(appointment, dateKey, safeTime);
+    if (!appointmentId) return;
+
+    try {
+      await createAppointmentOverride({
+        uid: currentUserId,
+        appointmentId,
+        payload: {
+          appointmentKey: appointmentId,
+          clientId: appointment.clientId,
+          dateKey,
+          name: appointment.name,
+          time: safeTime,
+          location: appointment.location || '',
+          status: 'scheduled',
+          confirmationStatus,
+          confirmationRespondedAt: Timestamp.fromDate(new Date()),
+          startAt: Timestamp.fromDate(appointmentDate),
+        },
+      });
+    } catch (error) {
+      Alert.alert('Agenda', 'Não foi possível atualizar a confirmação do compromisso.');
     }
   };
 
@@ -306,6 +449,20 @@ const HomeScreen = ({ navigation }) => {
     await handleConfirmAppointment(target);
   };
 
+  const handleMarkConfirmedFromMenu = async () => {
+    if (!selectedAppointment) return;
+    const target = selectedAppointment;
+    setSelectedAppointment(null);
+    await handleSetAppointmentConfirmation(target, 'confirmed');
+  };
+
+  const handleMarkCanceledFromMenu = async () => {
+    if (!selectedAppointment) return;
+    const target = selectedAppointment;
+    setSelectedAppointment(null);
+    await handleSetAppointmentConfirmation(target, 'canceled');
+  };
+
   const handleCompleteFromMenu = async () => {
     if (!selectedAppointment) return;
     const target = selectedAppointment;
@@ -321,62 +478,123 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const handleConfirmReschedule = async (newDate) => {
-    if (!rescheduleTarget || !currentUserId) {
+    const uid = resolveActiveUid();
+    if (!rescheduleTarget) {
       setRescheduleVisible(false);
       setRescheduleTarget(null);
+      return;
+    }
+    if (!uid) {
+      Alert.alert('Agenda', 'Sessão indisponível. Entre novamente para remarcar.');
+      return;
+    }
+    if (!(newDate instanceof Date) || Number.isNaN(newDate.getTime())) {
+      Alert.alert('Agenda', 'Data inválida para remarcação.');
       return;
     }
 
     const oldAppointment = rescheduleTarget;
     const oldStartAt = buildAppointmentStartAt(oldAppointment);
-    const oldDateKey = oldAppointment.dateKey || getDateKey(oldStartAt);
-    const newDateKey = getDateKey(newDate);
+    const oldDateKey = oldAppointment.dateKey || getLocalDateKey(oldStartAt);
+    const newDateKey = getLocalDateKey(newDate);
     const oldSafeTime = oldAppointment.time || '00:00';
-    const newTimeLabel = formatTimeLabelFromDate(newDate) || oldSafeTime;
+    const newSafeTime = formatTimeLabelFromDate(newDate) || oldSafeTime;
+    const oldAppointmentId =
+      oldAppointment.appointmentKey || `${oldAppointment.clientId}-${oldDateKey}-${oldSafeTime}`;
+    const newAppointmentId = `${oldAppointment.clientId}-${newDateKey}-${newSafeTime}`;
+    const previousOverrides = scheduleOverrides || {};
 
-    if (oldDateKey === newDateKey && newTimeLabel === oldSafeTime) {
-      setRescheduleVisible(false);
-      setRescheduleTarget(null);
+    if (oldAppointmentId === newAppointmentId) {
+      Alert.alert('Agenda', 'Escolha uma data ou horário diferente para remarcar.');
       return;
     }
 
     try {
-      await createAppointmentOverride({
-        uid: currentUserId,
-        appointmentId: `${oldAppointment.clientId}-${newDateKey}-${newTimeLabel}`,
-        payload: {
+      setScheduleOverrides((current) => {
+        const source = current || {};
+        const next = { ...source };
+        next[newDateKey] = {
+          ...(next[newDateKey] || {}),
+          [newAppointmentId]: {
+            appointmentKey: newAppointmentId,
+            clientId: oldAppointment.clientId,
+            dateKey: newDateKey,
+            name: oldAppointment.name,
+            time: newSafeTime,
+            location: oldAppointment.location || '',
+            status: 'scheduled',
+            confirmationStatus: 'pending',
+            confirmationRespondedAt: null,
+            confirmationSentAt: null,
+            action: 'add',
+            startAt: newDate,
+          },
+        };
+        next[oldDateKey] = {
+          ...(next[oldDateKey] || {}),
+          [oldAppointmentId]: {
+            appointmentKey: oldAppointmentId,
+            clientId: oldAppointment.clientId,
+            dateKey: oldDateKey,
+            name: oldAppointment.name,
+            time: oldSafeTime,
+            location: oldAppointment.location || '',
+            status: 'rescheduled',
+            action: 'remove',
+            rescheduledTo: newDate,
+            statusUpdatedAt: new Date(),
+            startAt: oldStartAt,
+          },
+        };
+        return next;
+      });
+
+      // Fecha o modal imediatamente para feedback instantâneo no Android.
+      setRescheduleVisible(false);
+      setRescheduleTarget(null);
+
+      await rescheduleAppointment({
+        uid,
+        oldAppointmentId,
+        newAppointmentId,
+        newPayload: {
+          appointmentKey: newAppointmentId,
           clientId: oldAppointment.clientId,
           dateKey: newDateKey,
           name: oldAppointment.name,
-          time: newTimeLabel,
+          time: newSafeTime,
           location: oldAppointment.location || '',
           status: 'scheduled',
+          confirmationStatus: 'pending',
+          confirmationRespondedAt: null,
+          confirmationSentAt: null,
           action: 'add',
           startAt: Timestamp.fromDate(newDate),
         },
-      });
-
-      await createAppointmentOverride({
-        uid: currentUserId,
-        appointmentId: `${oldAppointment.clientId}-${oldDateKey}-${oldSafeTime}`,
-        payload: {
+        oldPayload: {
+          appointmentKey: oldAppointmentId,
           clientId: oldAppointment.clientId,
           dateKey: oldDateKey,
           name: oldAppointment.name,
           time: oldSafeTime,
           location: oldAppointment.location || '',
           status: 'rescheduled',
+          action: 'remove',
           rescheduledTo: Timestamp.fromDate(newDate),
           statusUpdatedAt: Timestamp.fromDate(new Date()),
           startAt: Timestamp.fromDate(oldStartAt),
         },
       });
+      if (Platform.OS === 'android') {
+        ToastAndroid.show('Compromisso remarcado.', ToastAndroid.SHORT);
+      } else {
+        Alert.alert('Agenda', 'Compromisso remarcado com sucesso.');
+      }
     } catch (error) {
+      setScheduleOverrides(previousOverrides);
+      console.error('Erro ao remarcar compromisso', error);
       Alert.alert('Agenda', 'Não foi possível remarcar o compromisso.');
     }
-
-    setRescheduleVisible(false);
-    setRescheduleTarget(null);
   };
 
   const handleChargeReceivable = async (payment) => {
@@ -411,16 +629,127 @@ const HomeScreen = ({ navigation }) => {
     if (!opened) return;
 
     try {
+      const fallbackReceivable = {
+        clientId: payment.clientId,
+        clientName: payment.name,
+        amount: Number(payment.amount ?? 0),
+        dueDate,
+        monthKey: payment.receivable?.monthKey || getMonthKey(dueDate),
+        paid: false,
+      };
       await registerReceivableChargeSent({
         uid: currentUserId,
         receivableId: payment.id,
         usedTemplate: template,
+        fallbackReceivable,
       });
+      const sentAt = Timestamp.fromDate(new Date());
+      setReceivables((prev) =>
+        prev.map((item) => {
+          if (item.id !== payment.id) return item;
+          const history = Array.isArray(item.chargeHistory) ? item.chargeHistory : [];
+          return {
+            ...item,
+            lastChargeSentAt: sentAt,
+            chargeHistory: [
+              ...history,
+              { at: sentAt, channel: 'whatsapp', template },
+            ],
+          };
+        })
+      );
     } catch (error) {
       // ignore
     }
   };
 
+  const confirmMarkReceivablePaid = (payment) => {
+    if (!payment) return;
+    Alert.alert('Pago?', `Confirmar baixa para ${payment.name}?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Confirmar', onPress: () => handleMarkReceivablePaid(payment) },
+    ]);
+  };
+
+  const notifyPaymentSuccess = () => {
+    const message = 'Pagamento marcado como pago.';
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+      return;
+    }
+    Alert.alert('Pagamento', message);
+  };
+
+  const handleMarkReceivablePaid = async (payment) => {
+    if (!payment || !currentUserId) {
+      setSelectedPayment(null);
+      return;
+    }
+
+    if (!payment.dueDate) {
+      Alert.alert('Pagamento', 'Vencimento inválido para este recebível.');
+      setSelectedPayment(null);
+      return;
+    }
+
+    if (payingReceivableIds.includes(payment.id)) return;
+    setPayingReceivableIds((prev) => [...prev, payment.id]);
+
+    try {
+      const monthKey = getMonthKey(payment.dueDate);
+      const duplicateIds = receivables
+        .filter((item) => {
+          if (item.clientId !== payment.clientId) return false;
+          const itemDueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
+          if (!itemDueDate) return false;
+          return getMonthKey(itemDueDate) === monthKey;
+        })
+        .map((item) => item.id);
+
+      await markReceivableAsPaid({
+        uid: currentUserId,
+        receivableId: payment.id,
+        method: 'manual',
+        fallbackReceivable: {
+          clientId: payment.clientId,
+          clientName: payment.name,
+          amount: Number(payment.amount ?? 0),
+          dueDate: payment.dueDate,
+          monthKey,
+          paid: true,
+        },
+      });
+
+      setClientPaymentStatus({
+        clientId: payment.clientId,
+        monthKey,
+        paid: true,
+        amount: payment.amount,
+      });
+
+      if (duplicateIds.length > 0) {
+        await markReceivablesPaidByIds({
+          uid: currentUserId,
+          receivableIds: duplicateIds,
+        });
+      }
+
+      setReceivables((prev) =>
+        prev.filter((item) => {
+          if (item.clientId !== payment.clientId) return true;
+          const itemDueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
+          if (!itemDueDate) return item.id !== payment.id;
+          return getMonthKey(itemDueDate) !== monthKey;
+        })
+      );
+      notifyPaymentSuccess();
+    } catch (error) {
+      Alert.alert('Pagamento', 'Não foi possível atualizar o recebimento.');
+    } finally {
+      setPayingReceivableIds((prev) => prev.filter((id) => id !== payment.id));
+      setSelectedPayment(null);
+    }
+  };
   const handleToggleHideBalances = async () => {
     const previousValue = privacyHideBalances;
     const nextValue = !previousValue;
@@ -445,17 +774,29 @@ const HomeScreen = ({ navigation }) => {
     ? 'Carregando recebíveis...'
     : receivablesError || 'Tudo pago por enquanto!';
 
-  const getStatusLabel = (status) => {
+  const getStatusLabel = (appointment) => {
+    const status = appointment?.status;
     if (status === 'done') return 'Concluído';
     if (status === 'rescheduled') return 'Remarcado';
+    const confirmationStatus = resolveConfirmationStatus(appointment);
+    if (confirmationStatus === 'confirmed') return 'Confirmado';
+    if (confirmationStatus === 'canceled') return 'Cancelado';
+    if (confirmationStatus === 'sent') return 'Aguardando resposta';
     return 'Agendado';
   };
 
-  const getStatusColor = (status) => {
+  const getStatusColor = (appointment) => {
+    const status = appointment?.status;
     if (status === 'done') return COLORS.success;
     if (status === 'rescheduled') return COLORS.warning;
+    const confirmationStatus = resolveConfirmationStatus(appointment);
+    if (confirmationStatus === 'confirmed') return COLORS.success;
+    if (confirmationStatus === 'canceled') return COLORS.danger;
     return COLORS.primary;
   };
+
+  const selectedAppointmentConfirmationStatus = resolveConfirmationStatus(selectedAppointment);
+  const isSelectedAppointmentScheduled = selectedAppointment?.status === 'scheduled';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -549,11 +890,33 @@ const HomeScreen = ({ navigation }) => {
                     })}
                   </Text>
                   <TouchableOpacity
-                    style={styles.chargeButton}
-                    onPress={() => handleChargeReceivable(item)}
+                    style={[
+                      styles.chargeButton,
+                      (item.receivable?.lastChargeSentAt || (item.receivable?.chargeHistory?.length || 0) > 0) &&
+                        styles.chargeButtonPaid,
+                    ]}
+                    onPress={() => {
+                      const hasCharge = Boolean(
+                        item.receivable?.lastChargeSentAt ||
+                          (item.receivable?.chargeHistory?.length || 0) > 0
+                      );
+                      if (hasCharge) {
+                        confirmMarkReceivablePaid(item);
+                        return;
+                      }
+                      handleChargeReceivable(item);
+                    }}
                   >
-                    <Text style={styles.chargeButtonText}>
-                      {item.receivable?.lastChargeSentAt ? 'Cobrar novamente' : 'Cobrar'}
+                    <Text
+                      style={[
+                        styles.chargeButtonText,
+                        (item.receivable?.lastChargeSentAt || (item.receivable?.chargeHistory?.length || 0) > 0) &&
+                          styles.chargeButtonTextPaid,
+                      ]}
+                    >
+                      {item.receivable?.lastChargeSentAt || (item.receivable?.chargeHistory?.length || 0) > 0
+                        ? 'Pago?'
+                        : 'Cobrar'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -573,14 +936,14 @@ const HomeScreen = ({ navigation }) => {
             </View>
           ) : (
             todayAppointments.map((appointment) => (
-              <View key={appointment.id} style={styles.appointmentRow}>
+              <View key={appointment.appointmentKey || appointment.id} style={styles.appointmentRow}>
                 <View style={styles.timeColumn}>
                   <Text style={styles.timeText}>{appointment.time}</Text>
                 </View>
                 <TouchableOpacity
                   style={[
                     styles.appointmentCard,
-                    { borderLeftColor: getStatusColor(appointment.status) },
+                    { borderLeftColor: getStatusColor(appointment) },
                   ]}
                   onPress={() => handleOpenAppointmentMenu(appointment)}
                   activeOpacity={0.85}
@@ -590,10 +953,10 @@ const HomeScreen = ({ navigation }) => {
                   <Text
                     style={[
                       styles.statusLabel,
-                      { color: getStatusColor(appointment.status) },
+                      { color: getStatusColor(appointment) },
                     ]}
                   >
-                    {getStatusLabel(appointment.status)}
+                    {getStatusLabel(appointment)}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -675,33 +1038,71 @@ const HomeScreen = ({ navigation }) => {
                   {selectedAppointment?.time || '00:00'} • {selectedAppointment?.location || 'Sem local'}
                 </Text>
 
-                <TouchableOpacity
-                  style={styles.appointmentModalButtonPrimary}
-                  onPress={handleConfirmFromMenu}
-                >
-                  <Icon name="message-circle" size={20} color={COLORS.primary} />
-                  <Text style={[styles.modalButtonText, { color: COLORS.primary }]}>
-                    Confirmar compromisso
-                  </Text>
-                </TouchableOpacity>
+                {isSelectedAppointmentScheduled && selectedAppointmentConfirmationStatus === 'pending' ? (
+                  <TouchableOpacity
+                    style={styles.appointmentModalButtonPrimary}
+                    onPress={handleConfirmFromMenu}
+                  >
+                    <Icon name="message-circle" size={20} color={COLORS.primary} />
+                    <Text style={[styles.modalButtonText, { color: COLORS.primary }]}>
+                      Confirmar compromisso
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
 
-                <TouchableOpacity
-                  style={styles.appointmentModalButtonSuccess}
-                  onPress={handleCompleteFromMenu}
-                >
-                  <Icon name="check-circle" size={20} color={COLORS.textOnPrimary} />
-                  <Text style={styles.modalButtonText}>Marcar como concluído</Text>
-                </TouchableOpacity>
+                {isSelectedAppointmentScheduled && selectedAppointmentConfirmationStatus === 'sent' ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.appointmentModalButtonSuccess}
+                      onPress={handleMarkConfirmedFromMenu}
+                    >
+                      <Icon name="check-circle" size={20} color={COLORS.textOnPrimary} />
+                      <Text style={styles.modalButtonText}>Confirmado</Text>
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.appointmentModalButtonWarning}
-                  onPress={handleRescheduleFromMenu}
-                >
-                  <Icon name="calendar" size={20} color={COLORS.warning} />
-                  <Text style={[styles.modalButtonText, { color: COLORS.warning }]}>
-                    Remarcar compromisso
-                  </Text>
-                </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.appointmentModalButtonDanger}
+                      onPress={handleMarkCanceledFromMenu}
+                    >
+                      <Icon name="x-circle" size={20} color={COLORS.textOnPrimary} />
+                      <Text style={styles.modalButtonText}>Cancelado</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
+
+                {isSelectedAppointmentScheduled && selectedAppointmentConfirmationStatus === 'confirmed' ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.appointmentModalButtonSuccess}
+                      onPress={handleCompleteFromMenu}
+                    >
+                      <Icon name="check-circle" size={20} color={COLORS.textOnPrimary} />
+                      <Text style={styles.modalButtonText}>Marcar como concluído</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.appointmentModalButtonWarning}
+                      onPress={handleRescheduleFromMenu}
+                    >
+                      <Icon name="calendar" size={20} color={COLORS.warning} />
+                      <Text style={[styles.modalButtonText, { color: COLORS.warning }]}>
+                        Remarcar compromisso
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
+
+                {isSelectedAppointmentScheduled && selectedAppointmentConfirmationStatus === 'canceled' ? (
+                  <TouchableOpacity
+                    style={styles.appointmentModalButtonWarning}
+                    onPress={handleRescheduleFromMenu}
+                  >
+                    <Icon name="calendar" size={20} color={COLORS.warning} />
+                    <Text style={[styles.modalButtonText, { color: COLORS.warning }]}>
+                      Remarcar compromisso
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -822,6 +1223,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(43,108,176,0.2)',
   },
   chargeButtonText: { ...TYPOGRAPHY.caption, color: COLORS.primary },
+  chargeButtonPaid: {
+    backgroundColor: 'rgba(72,187,120,0.15)',
+    borderColor: 'rgba(72,187,120,0.35)',
+  },
+  chargeButtonTextPaid: { color: COLORS.success, fontWeight: '600' },
   emptyText: { ...TYPOGRAPHY.body, marginLeft: 24, color: COLORS.textSecondary },
   appointmentRow: { flexDirection: 'row', paddingHorizontal: 24, marginBottom: 16 },
   timeColumn: { width: 60, alignItems: 'center', paddingTop: 10 },
@@ -926,6 +1332,16 @@ const styles = StyleSheet.create({
     width: '100%',
     padding: 16,
     borderRadius: 16,
+  },
+  appointmentModalButtonDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.danger,
+    width: '100%',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
   },
 });
 

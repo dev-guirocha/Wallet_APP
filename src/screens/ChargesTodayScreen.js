@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
+  ToastAndroid,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -9,13 +10,21 @@ import {
   FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 import { onSnapshot, orderBy, query, Timestamp, where } from 'firebase/firestore';
 
-import { formatCurrency, formatDateLabel, startOfDay, endOfDay } from '../utils/dateUtils';
+import {
+  formatCurrency,
+  formatDateLabel,
+  getMonthKey,
+} from '../utils/dateUtils';
 import { useClientStore } from '../store/useClientStore';
 import { userReceivablesCollection } from '../utils/firestoreRefs';
-import { markReceivableAsPaid, registerReceivableChargeSent } from '../utils/firestoreService';
+import {
+  markReceivableAsPaid,
+  markReceivablesPaidByIds,
+  registerReceivableChargeSent,
+} from '../utils/firestoreService';
 import {
   applyTemplateVariables,
   buildPhoneE164FromRaw,
@@ -25,10 +34,26 @@ import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
 const DEFAULT_CHARGE_TEMPLATE = 'Olá {nome}, sua cobrança vence em {data}.';
 
+const isSameCalendarDay = (a, b) => {
+  if (!(a instanceof Date) || !(b instanceof Date)) return false;
+  return (
+    a.getDate() === b.getDate() &&
+    a.getMonth() === b.getMonth() &&
+    a.getFullYear() === b.getFullYear()
+  );
+};
+
+const itemMs = (value) => {
+  if (!(value instanceof Date)) return 0;
+  const ms = value.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
 const ChargesTodayScreen = ({ navigation }) => {
   const currentUserId = useClientStore((state) => state.currentUserId);
   const templates = useClientStore((state) => state.templates);
   const clients = useClientStore((state) => state.clients);
+  const setClientPaymentStatus = useClientStore((state) => state.setClientPaymentStatus);
 
   const [receivables, setReceivables] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -43,18 +68,12 @@ const ChargesTodayScreen = ({ navigation }) => {
       return;
     }
 
-    const today = new Date();
-    const rangeStart = startOfDay(today);
-    const rangeEnd = endOfDay(today);
-
     setIsLoading(true);
     setLoadError('');
 
     const receivablesQuery = query(
       userReceivablesCollection(currentUserId),
       where('paid', '==', false),
-      where('dueDate', '>=', Timestamp.fromDate(rangeStart)),
-      where('dueDate', '<=', Timestamp.fromDate(rangeEnd)),
       orderBy('dueDate', 'asc')
     );
 
@@ -75,17 +94,20 @@ const ChargesTodayScreen = ({ navigation }) => {
   }, [currentUserId]);
 
   const items = useMemo(() => {
+    const today = new Date();
     const map = new Map(clients.map((client) => [client.id, client]));
     return receivables.map((receivable) => {
       const client = map.get(receivable.clientId);
-      const dueDate = receivable.dueDate?.toDate?.() || new Date(receivable.dueDate);
+      const dueDate = receivable.dueDate?.toDate?.() || (receivable.dueDate ? new Date(receivable.dueDate) : null);
       const name = client?.name || receivable.clientName || 'Cliente';
       const amount = Number(receivable.amount ?? client?.value ?? 0);
       const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
       const lastCharge = Array.isArray(receivable.chargeHistory) && receivable.chargeHistory.length > 0
         ? receivable.chargeHistory[receivable.chargeHistory.length - 1]
         : null;
+      const lastChargeSentAt = receivable.lastChargeSentAt?.toDate?.() || (receivable.lastChargeSentAt ? new Date(receivable.lastChargeSentAt) : null);
       const lastChargeAt = lastCharge?.at?.toDate?.() || (lastCharge?.at ? new Date(lastCharge.at) : null);
+      const chargeDate = lastChargeSentAt || lastChargeAt;
       return {
         id: receivable.id,
         clientId: receivable.clientId,
@@ -95,12 +117,20 @@ const ChargesTodayScreen = ({ navigation }) => {
         phoneE164,
         receivable,
         lastChargeAt,
+        chargeDate,
       };
-    });
+    })
+      .filter((item) => isSameCalendarDay(item.chargeDate, today))
+      .sort((a, b) => {
+        const aMs = itemMs(a.chargeDate);
+        const bMs = itemMs(b.chargeDate);
+        return bMs - aMs;
+      });
   }, [clients, receivables]);
 
   const handleCharge = async (item) => {
     if (!currentUserId || !item) return;
+    const dueDate = item.dueDate || new Date();
 
     const last = item.receivable?.lastChargeSentAt;
     if (last) {
@@ -119,24 +149,57 @@ const ChargesTodayScreen = ({ navigation }) => {
     const template = templates?.chargeMsg?.trim() || DEFAULT_CHARGE_TEMPLATE;
     const message = applyTemplateVariables(template, {
       nome: item.name,
-      dd: String(item.dueDate.getDate()).padStart(2, '0'),
-      mm: String(item.dueDate.getMonth() + 1).padStart(2, '0'),
-      data: formatDateLabel(item.dueDate),
+      dd: String(dueDate.getDate()).padStart(2, '0'),
+      mm: String(dueDate.getMonth() + 1).padStart(2, '0'),
+      data: formatDateLabel(dueDate),
     });
 
     const opened = await openWhatsAppWithMessage({ phoneE164: item.phoneE164, message });
     if (!opened) return;
 
     try {
+      const fallbackReceivable = {
+        clientId: item.clientId,
+        clientName: item.name,
+        amount: Number(item.amount ?? 0),
+        dueDate,
+        monthKey: item.receivable?.monthKey || getMonthKey(dueDate),
+        paid: false,
+      };
       await registerReceivableChargeSent({
         uid: currentUserId,
         receivableId: item.id,
         usedTemplate: template,
         userAgent: `${Platform.OS}-${Platform.Version}`,
+        fallbackReceivable,
       });
+      const sentAt = Timestamp.fromDate(new Date());
+      setReceivables((prev) =>
+        prev.map((receivable) => {
+          if (receivable.id !== item.id) return receivable;
+          const history = Array.isArray(receivable.chargeHistory) ? receivable.chargeHistory : [];
+          return {
+            ...receivable,
+            lastChargeSentAt: sentAt,
+            chargeHistory: [
+              ...history,
+              { at: sentAt, channel: 'whatsapp', template },
+            ],
+          };
+        })
+      );
     } catch (error) {
       // ignore
     }
+  };
+
+  const notifyPaymentSuccess = () => {
+    const message = 'Pagamento marcado como pago.';
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+      return;
+    }
+    Alert.alert('Pagamento', message);
   };
 
   const handleMarkAsPaid = (item) => {
@@ -147,13 +210,39 @@ const ChargesTodayScreen = ({ navigation }) => {
         text: 'Confirmar',
         onPress: async () => {
           if (payingId) return;
+          if (!item.dueDate) {
+            Alert.alert('Pagamento', 'Vencimento inválido para este recebível.');
+            return;
+          }
           setPayingId(item.id);
           try {
+            const monthKey = getMonthKey(item.dueDate);
             await markReceivableAsPaid({
               uid: currentUserId,
               receivableId: item.id,
               method: 'manual',
+              fallbackReceivable: {
+                clientId: item.clientId,
+                clientName: item.name,
+                amount: Number(item.amount ?? 0),
+                dueDate: item.dueDate,
+                monthKey,
+                paid: true,
+              },
             });
+            setClientPaymentStatus({
+              clientId: item.clientId,
+              monthKey,
+              paid: true,
+              amount: item.amount,
+            });
+            await markReceivablesPaidByIds({
+              uid: currentUserId,
+              receivableIds: [item.id],
+            });
+            setReceivables((prev) => prev.filter((receivable) => receivable.id !== item.id));
+            notifyPaymentSuccess();
+            navigation.navigate('MainTabs', { screen: 'Início' });
           } catch (error) {
             Alert.alert('Pagamento', 'Não foi possível dar baixa neste recebível.');
           } finally {
@@ -193,33 +282,43 @@ const ChargesTodayScreen = ({ navigation }) => {
               <View style={styles.cardInfo}>
                 <Text style={styles.name}>{item.name}</Text>
                 <Text style={styles.subLabel}>Vence em {formatDateLabel(item.dueDate)}</Text>
-                {item.lastChargeAt ? (
+                {item.chargeDate ? (
                   <Text style={styles.subLabel}>
-                    Última cobrança: {item.lastChargeAt.toLocaleString('pt-BR')}
+                    Última cobrança: {item.chargeDate.toLocaleString('pt-BR')}
                   </Text>
                 ) : null}
                 <Text style={styles.amount}>{formatCurrency(item.amount)}</Text>
               </View>
               <View style={styles.cardActions}>
-                <TouchableOpacity
-                  style={styles.chargeButton}
-                  onPress={() => handleCharge(item)}
-                >
-                  <Icon name="message-circle" size={16} color={COLORS.textOnPrimary} />
-                  <Text style={styles.chargeText}>
-                    {item.receivable?.lastChargeSentAt ? 'Cobrar novamente' : 'Cobrar'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.paidButton, payingId === item.id && styles.paidButtonDisabled]}
-                  onPress={() => handleMarkAsPaid(item)}
-                  disabled={payingId === item.id}
-                >
-                  <Icon name="check-circle" size={16} color={COLORS.textOnPrimary} />
-                  <Text style={styles.chargeText}>
-                    {payingId === item.id ? 'Processando' : 'Marcar pago'}
-                  </Text>
-                </TouchableOpacity>
+                {(() => {
+                  const hasCharge = Boolean(
+                    item.receivable?.lastChargeSentAt ||
+                      (item.receivable?.chargeHistory?.length || 0) > 0
+                  );
+                  if (hasCharge) {
+                    return (
+                      <TouchableOpacity
+                        style={[styles.paidButton, payingId === item.id && styles.paidButtonDisabled]}
+                        onPress={() => handleMarkAsPaid(item)}
+                        disabled={payingId === item.id}
+                      >
+                        <Icon name="check-circle" size={16} color={COLORS.textOnPrimary} />
+                        <Text style={styles.chargeText}>
+                          {payingId === item.id ? 'Processando' : 'Marcar como pago'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                  return (
+                    <TouchableOpacity
+                      style={styles.chargeButton}
+                      onPress={() => handleCharge(item)}
+                    >
+                      <Icon name="message-circle" size={16} color={COLORS.textOnPrimary} />
+                      <Text style={styles.chargeText}>Cobrar</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
               </View>
             </View>
           )}
