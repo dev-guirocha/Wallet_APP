@@ -17,6 +17,7 @@ import {
   formatCurrency,
   formatDateLabel,
   getMonthKey,
+  parseDateKeyToDate,
 } from '../utils/dateUtils';
 import { useClientStore } from '../store/useClientStore';
 import { userReceivablesCollection } from '../utils/firestoreRefs';
@@ -47,6 +48,13 @@ const itemMs = (value) => {
   if (!(value instanceof Date)) return 0;
   const ms = value.getTime();
   return Number.isFinite(ms) ? ms : 0;
+};
+
+const resolveReceivableDueDate = (receivable) => {
+  const fromTimestamp = receivable?.dueDate?.toDate?.() || (receivable?.dueDate ? new Date(receivable.dueDate) : null);
+  if (fromTimestamp instanceof Date && !Number.isNaN(fromTimestamp.getTime())) return fromTimestamp;
+  const fromKey = parseDateKeyToDate(receivable?.dueDateKey);
+  return fromKey instanceof Date && !Number.isNaN(fromKey.getTime()) ? fromKey : null;
 };
 
 const ChargesTodayScreen = ({ navigation }) => {
@@ -98,7 +106,7 @@ const ChargesTodayScreen = ({ navigation }) => {
     const map = new Map(clients.map((client) => [client.id, client]));
     return receivables.map((receivable) => {
       const client = map.get(receivable.clientId);
-      const dueDate = receivable.dueDate?.toDate?.() || (receivable.dueDate ? new Date(receivable.dueDate) : null);
+      const dueDate = resolveReceivableDueDate(receivable);
       const name = client?.name || receivable.clientName || 'Cliente';
       const amount = Number(receivable.amount ?? client?.value ?? 0);
       const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');

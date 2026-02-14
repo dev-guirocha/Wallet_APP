@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
+import { auth } from '../utils/firebase';
 import {
   deleteClientFromFirestore,
   deleteExpenseFromFirestore,
@@ -32,6 +33,26 @@ const normalizePayments = (payments) => {
   }, {});
 };
 
+const WEEKDAY_ORDER = {
+  Seg: 0,
+  Ter: 1,
+  Qua: 2,
+  Qui: 3,
+  Sex: 4,
+  'Sáb': 5,
+  Dom: 6,
+};
+
+const sortClientDays = (days = []) =>
+  [...days].sort((a, b) => {
+    const orderA = WEEKDAY_ORDER[a];
+    const orderB = WEEKDAY_ORDER[b];
+    if (orderA === undefined && orderB === undefined) return String(a).localeCompare(String(b));
+    if (orderA === undefined) return 1;
+    if (orderB === undefined) return -1;
+    return orderA - orderB;
+  });
+
 const normalizeClient = (client) => {
   if (!client || typeof client !== 'object') return client;
   const valueNumber = Number(client.value || 0);
@@ -40,7 +61,7 @@ const normalizeClient = (client) => {
     ...client,
     value: Number.isFinite(valueNumber) ? valueNumber : 0,
     dueDay: Number.isFinite(dueDayNumber) ? dueDayNumber : 0,
-    days: Array.isArray(client.days) ? client.days : [],
+    days: Array.isArray(client.days) ? sortClientDays(client.days) : [],
     payments: normalizePayments(client.payments),
   };
 };
@@ -82,32 +103,51 @@ const getAgeFromBirthdate = (dateKey) => {
   return age;
 };
 
+const resolveActiveUid = (get) => get().currentUserId || auth?.currentUser?.uid || null;
+
+const pickNonEmptyString = (incoming, current) => {
+  if (incoming === undefined || incoming === null) return current || '';
+  const normalized = String(incoming).trim();
+  if (!normalized) return current || '';
+  return normalized;
+};
+
+const createBaseState = () => ({
+  clients: [],
+  expenses: [],
+  clientTerm: 'Cliente',
+  userName: '',
+  userEmail: '',
+  userPhone: '',
+  userAge: null,
+  userBirthdate: '',
+  userProfession: '',
+  userPhotoURL: '',
+  privacyHideBalances: false,
+  templates: {
+    confirmMsg: '',
+    chargeMsg: '',
+  },
+  scheduleOverrides: {},
+  currentUserId: null,
+  planTier: 'free',
+  notificationsEnabled: false,
+  isLoading: false,
+});
+
 export const useClientStore = create(
   persist(
     (set, get) => ({
-      clients: [],
-      expenses: [],
-      clientTerm: 'Cliente',
-      userName: '',
-      userEmail: '',
-      userPhone: '',
-      userAge: null,
-      userBirthdate: '',
-      userProfession: '',
-      userPhotoURL: '',
-      privacyHideBalances: false,
-      templates: {
-        confirmMsg: '',
-        chargeMsg: '',
-      },
-      scheduleOverrides: {},
-      currentUserId: null,
-      planTier: 'free',
-      notificationsEnabled: false,
-      isLoading: false,
+      ...createBaseState(),
 
       setCurrentUserId: (uid) => set({ currentUserId: uid || null }),
-      setScheduleOverrides: (overrides) => set({ scheduleOverrides: overrides || {} }),
+      setScheduleOverrides: (overrides) =>
+        set((state) => ({
+          scheduleOverrides:
+            typeof overrides === 'function'
+              ? overrides(state.scheduleOverrides || {}) || {}
+              : overrides || {},
+        })),
       setClients: (clients) => set({ clients: normalizeClients(clients) }),
       setExpenses: (expenses) => set({ expenses: normalizeExpenses(expenses) }),
 
@@ -127,11 +167,11 @@ export const useClientStore = create(
         }),
       setUserDoc: (data) =>
         set((state) => ({
-          userName: data?.name ?? state.userName,
-          userEmail: data?.email ?? state.userEmail,
-          userPhone: data?.phone ?? state.userPhone,
-          userBirthdate: data?.birthdate ?? state.userBirthdate,
-          userProfession: data?.profession ?? state.userProfession,
+          userName: pickNonEmptyString(data?.name, state.userName),
+          userEmail: pickNonEmptyString(data?.email, state.userEmail),
+          userPhone: pickNonEmptyString(data?.phone, state.userPhone),
+          userBirthdate: pickNonEmptyString(data?.birthdate, state.userBirthdate),
+          userProfession: pickNonEmptyString(data?.profession, state.userProfession),
           userPhotoURL: data?.photoURL ?? state.userPhotoURL,
           privacyHideBalances:
             data?.privacy?.hideBalances !== undefined
@@ -153,6 +193,82 @@ export const useClientStore = create(
         }),
       setPlanTier: (tier) => set({ planTier: tier === 'pro' ? 'pro' : 'free' }),
       setNotificationsEnabled: (enabled) => set({ notificationsEnabled: Boolean(enabled) }),
+      setClientPaymentStatus: ({ clientId, monthKey, paid, amount }) =>
+        set((state) => ({
+          clients: state.clients.map((client) => {
+            if (client.id !== clientId) return client;
+            const newPayments = { ...client.payments };
+            newPayments[monthKey] = {
+              status: paid ? 'paid' : 'pending',
+              date: paid ? new Date().toISOString() : null,
+              value: Number(amount ?? client.value ?? 0),
+              updatedAt: new Date().toISOString(),
+            };
+            return {
+              ...client,
+              payments: newPayments,
+            };
+          }),
+        })),
+      syncPaymentsFromReceivables: (entries = []) =>
+        set((state) => {
+          if (!Array.isArray(entries) || entries.length === 0) return {};
+
+          const index = new Map();
+          entries.forEach((entry) => {
+            if (!entry?.clientId || !entry?.monthKey) return;
+            if (!index.has(entry.clientId)) {
+              index.set(entry.clientId, new Map());
+            }
+            index.get(entry.clientId).set(entry.monthKey, entry);
+          });
+
+          let changed = false;
+          const updatedClients = state.clients.map((client) => {
+            const clientEntries = index.get(client.id);
+            if (!clientEntries) return client;
+
+            let clientChanged = false;
+            const newPayments = { ...client.payments };
+
+            clientEntries.forEach((entry, monthKey) => {
+              const paid = Boolean(entry.paid);
+              const status = paid ? 'paid' : 'pending';
+              const amount = Number(entry.amount ?? client.value ?? 0);
+              const current = newPayments[monthKey];
+              const currentStatus = normalizePaymentStatus(current);
+              const currentValue = Number(
+                typeof current === 'object' && current ? current.value ?? client.value ?? 0 : client.value ?? 0
+              );
+
+              if (currentStatus === status && currentValue === amount) return;
+
+              newPayments[monthKey] = {
+                status,
+                date: paid
+                  ? (entry.paidAt instanceof Date
+                    ? entry.paidAt.toISOString()
+                    : entry.paidAt
+                      ? new Date(entry.paidAt).toISOString()
+                      : new Date().toISOString())
+                  : null,
+                value: amount,
+                updatedAt: new Date().toISOString(),
+              };
+              clientChanged = true;
+            });
+
+            if (!clientChanged) return client;
+            changed = true;
+            return {
+              ...client,
+              payments: newPayments,
+            };
+          });
+
+          if (!changed) return {};
+          return { clients: updatedClients };
+        }),
 
       addClient: async (clientData) => {
         const newClient = normalizeClient({
@@ -161,14 +277,16 @@ export const useClientStore = create(
           ...clientData,
         });
         set((state) => ({ clients: [...state.clients, newClient] }));
-        const uid = get().currentUserId;
+        const uid = resolveActiveUid(get);
         if (uid) {
-          try {
-            await upsertClient({ uid, client: newClient });
-            await upsertReceivableForClient({ uid, client: newClient });
-          } catch (error) {
-            // ignore firestore sync errors
-          }
+          void (async () => {
+            try {
+              await upsertClient({ uid, client: newClient });
+              await upsertReceivableForClient({ uid, client: newClient });
+            } catch (error) {
+              // ignore firestore sync errors
+            }
+          })();
         }
       },
 
@@ -184,14 +302,16 @@ export const useClientStore = create(
               : client
           ),
         }));
-        const uid = get().currentUserId;
+        const uid = resolveActiveUid(get);
         if (uid && updatedClient) {
-          try {
-            await upsertClient({ uid, client: updatedClient });
-            await upsertReceivableForClient({ uid, client: updatedClient });
-          } catch (error) {
-            // ignore firestore sync errors
-          }
+          void (async () => {
+            try {
+              await upsertClient({ uid, client: updatedClient });
+              await upsertReceivableForClient({ uid, client: updatedClient });
+            } catch (error) {
+              // ignore firestore sync errors
+            }
+          })();
         }
       },
 
@@ -199,13 +319,15 @@ export const useClientStore = create(
         set((state) => ({
           clients: state.clients.filter((client) => client.id !== id),
         }));
-        const uid = get().currentUserId;
+        const uid = resolveActiveUid(get);
         if (uid) {
-          try {
-            await deleteClientFromFirestore({ uid, clientId: id });
-          } catch (error) {
-            // ignore firestore sync errors
-          }
+          void (async () => {
+            try {
+              await deleteClientFromFirestore({ uid, clientId: id });
+            } catch (error) {
+              // ignore firestore sync errors
+            }
+          })();
         }
       },
 
@@ -248,7 +370,7 @@ export const useClientStore = create(
           }),
         }));
 
-        const uid = get().currentUserId;
+        const uid = resolveActiveUid(get);
         if (uid && updatedClient) {
           try {
             await upsertClient({ uid, client: updatedClient });
@@ -273,7 +395,7 @@ export const useClientStore = create(
           ...expenseData,
         });
         set((state) => ({ expenses: [...state.expenses, newExpense] }));
-        const uid = get().currentUserId;
+        const uid = resolveActiveUid(get);
         if (uid) {
           try {
             await upsertExpense({ uid, expense: newExpense });
@@ -287,7 +409,7 @@ export const useClientStore = create(
         set((state) => ({
           expenses: state.expenses.filter((expense) => expense.id !== id),
         }));
-        const uid = get().currentUserId;
+        const uid = resolveActiveUid(get);
         if (uid) {
           try {
             await deleteExpenseFromFirestore({ uid, expenseId: id });
@@ -295,6 +417,9 @@ export const useClientStore = create(
             // ignore firestore sync errors
           }
         }
+      },
+      resetLocalState: () => {
+        set(createBaseState());
       },
     }),
     {
@@ -304,30 +429,11 @@ export const useClientStore = create(
       migrate: (persistedState) => {
         try {
           if (!persistedState || typeof persistedState !== 'object') {
-            return {
-              clients: [],
-              expenses: [],
-              clientTerm: 'Cliente',
-              userName: '',
-              userEmail: '',
-              userPhone: '',
-              userAge: null,
-              userBirthdate: '',
-              userProfession: '',
-              userPhotoURL: '',
-              privacyHideBalances: false,
-              templates: {
-                confirmMsg: '',
-                chargeMsg: '',
-              },
-              scheduleOverrides: {},
-              currentUserId: null,
-              planTier: 'free',
-              notificationsEnabled: false,
-              isLoading: false,
-            };
+            return createBaseState();
           }
+          const baseState = createBaseState();
           return {
+            ...baseState,
             clients: normalizeClients(persistedState.clients),
             expenses: normalizeExpenses(persistedState.expenses),
             clientTerm: persistedState.clientTerm || 'Cliente',
@@ -359,28 +465,7 @@ export const useClientStore = create(
             isLoading: false,
           };
         } catch (error) {
-          return {
-            clients: [],
-            expenses: [],
-            clientTerm: 'Cliente',
-            userName: '',
-            userEmail: '',
-            userPhone: '',
-            userAge: null,
-            userBirthdate: '',
-            userProfession: '',
-            userPhotoURL: '',
-            privacyHideBalances: false,
-            templates: {
-              confirmMsg: '',
-              chargeMsg: '',
-            },
-            scheduleOverrides: {},
-            currentUserId: null,
-            planTier: 'free',
-            notificationsEnabled: false,
-            isLoading: false,
-          };
+          return createBaseState();
         }
       },
     }

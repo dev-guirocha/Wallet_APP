@@ -15,7 +15,7 @@ import {
 import { getDownloadURL, ref, uploadBytes, uploadString } from 'firebase/storage';
 import * as FileSystem from 'expo-file-system';
 
-import { endOfDay, getMonthKey, startOfDay } from './dateUtils';
+import { endOfDay, getDateKey, getMonthKey, startOfDay } from './dateUtils';
 import { readEnv } from './env';
 import {
   userAppointmentsCollection,
@@ -88,6 +88,8 @@ const buildReceivablePayload = ({ client, monthKey, dueDate, paid }) => ({
   clientName: client.name || '',
   amount: Number(client.value || 0),
   monthKey,
+  dueDay: Number(client?.dueDay || dueDate.getDate()),
+  dueDateKey: getDateKey(dueDate),
   dueDate: Timestamp.fromDate(dueDate),
   paid: Boolean(paid),
   updatedAt: serverTimestamp(),
@@ -115,8 +117,16 @@ const buildReceivableFallbackPayload = (fallbackReceivable) => {
   if (Number.isFinite(amount)) payload.amount = amount;
 
   const dueDate = resolveDateFromUnknown(fallbackReceivable.dueDate);
-  const monthKey = fallbackReceivable.monthKey || (dueDate ? getMonthKey(dueDate) : '');
+  const dueDateKey = fallbackReceivable.dueDateKey || (dueDate ? getDateKey(dueDate) : '');
+  if (dueDateKey) payload.dueDateKey = dueDateKey;
+  const monthKey =
+    fallbackReceivable.monthKey ||
+    (dueDate ? getMonthKey(dueDate) : dueDateKey ? dueDateKey.slice(0, 7) : '');
   if (monthKey) payload.monthKey = monthKey;
+  const dueDay = Number(
+    fallbackReceivable.dueDay ?? (dueDate ? dueDate.getDate() : dueDateKey ? Number(dueDateKey.slice(8, 10)) : NaN)
+  );
+  if (Number.isInteger(dueDay) && dueDay > 0) payload.dueDay = dueDay;
   if (dueDate) payload.dueDate = Timestamp.fromDate(dueDate);
 
   if (fallbackReceivable.paid !== undefined) {
@@ -757,14 +767,8 @@ export const fetchReceivablesForRange = async ({ uid, startDate, endDate }) => {
 export const migrateLocalDataToFirestore = async ({ uid, localState }) => {
   if (!uid) return { migrated: false };
   const userRef = userDocRef(uid);
-  const existing = await getDoc(userRef);
-  if (existing.exists() && existing.data()?.migratedAt) {
-    return { migrated: false };
-  }
-
-  const clientsRef = userClientsCollection(uid);
-  const existingClients = await getDocs(query(clientsRef, limit(1)));
-  if (!existingClients.empty) {
+  const userSnapshot = await getDoc(userRef);
+  if (userSnapshot.exists() && userSnapshot.data()?.migratedAt) {
     return { migrated: false };
   }
 
@@ -781,19 +785,26 @@ export const migrateLocalDataToFirestore = async ({ uid, localState }) => {
   };
 
   await ensureUserDefaults({ uid, profile });
-  await setDoc(
-    userRef,
-    { migratedAt: serverTimestamp(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
-    { merge: true }
-  );
 
   const clients = Array.isArray(localState?.clients) ? localState.clients : [];
   const expenses = Array.isArray(localState?.expenses) ? localState.expenses : [];
+  const clientsRef = userClientsCollection(uid);
+  const expensesRef = userExpensesCollection(uid);
+
+  const [remoteClientsSnapshot, remoteExpensesSnapshot] = await Promise.all([
+    getDocs(clientsRef),
+    getDocs(expensesRef),
+  ]);
+
+  const remoteClientIds = new Set(remoteClientsSnapshot.docs.map((docSnap) => docSnap.id));
+  const remoteExpenseIds = new Set(remoteExpensesSnapshot.docs.map((docSnap) => docSnap.id));
+  const clientsToCreate = clients.filter((client) => client?.id && !remoteClientIds.has(client.id));
+  const expensesToCreate = expenses.filter((expense) => expense?.id && !remoteExpenseIds.has(expense.id));
 
   const batchSize = 400;
-  for (let i = 0; i < clients.length; i += batchSize) {
+  for (let i = 0; i < clientsToCreate.length; i += batchSize) {
     const batch = writeBatch(db);
-    clients.slice(i, i + batchSize).forEach((client) => {
+    clientsToCreate.slice(i, i + batchSize).forEach((client) => {
       if (!client?.id) return;
       const clientRef = userClientDoc(uid, client.id);
       const phoneRaw = client.phoneRaw || client.phone || '';
@@ -813,9 +824,9 @@ export const migrateLocalDataToFirestore = async ({ uid, localState }) => {
     await batch.commit();
   }
 
-  for (let i = 0; i < expenses.length; i += batchSize) {
+  for (let i = 0; i < expensesToCreate.length; i += batchSize) {
     const batch = writeBatch(db);
-    expenses.slice(i, i + batchSize).forEach((expense) => {
+    expensesToCreate.slice(i, i + batchSize).forEach((expense) => {
       if (!expense?.id) return;
       const expenseRef = userExpenseDoc(uid, expense.id);
       batch.set(
@@ -835,7 +846,22 @@ export const migrateLocalDataToFirestore = async ({ uid, localState }) => {
     await upsertReceivableForClient({ uid, client });
   }
 
-  return { migrated: true };
+  await setDoc(
+    userRef,
+    {
+      migratedAt: serverTimestamp(),
+      migrationVersion: 2,
+      createdAt: userSnapshot.exists() ? userSnapshot.data()?.createdAt || serverTimestamp() : serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return {
+    migrated: true,
+    clientsCreated: clientsToCreate.length,
+    expensesCreated: expensesToCreate.length,
+  };
 };
 
 export const fetchAppointmentOverridesForRange = async ({ uid, startDate, endDate }) => {

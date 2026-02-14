@@ -25,6 +25,7 @@ import {
   formatTimeLabelFromDate,
   getDateKey,
   getMonthKey,
+  parseDateKeyToDate,
   parseTimeLabelParts,
 } from '../utils/dateUtils';
 import { getAppointmentsForDate } from '../utils/schedule';
@@ -85,6 +86,13 @@ const resolveConfirmationStatus = (appointment) => {
 const isPaymentMarkedPaid = (entry) => {
   const rawStatus = typeof entry === 'object' ? entry?.status : entry;
   return rawStatus === 'paid' || rawStatus === 'pago';
+};
+
+const resolveReceivableDueDate = (receivable) => {
+  const fromTimestamp = receivable?.dueDate?.toDate?.() || (receivable?.dueDate ? new Date(receivable.dueDate) : null);
+  if (fromTimestamp instanceof Date && !Number.isNaN(fromTimestamp.getTime())) return fromTimestamp;
+  const fromKey = parseDateKeyToDate(receivable?.dueDateKey);
+  return fromKey instanceof Date && !Number.isNaN(fromKey.getTime()) ? fromKey : null;
 };
 
 const HomeScreen = ({ navigation }) => {
@@ -174,6 +182,7 @@ const HomeScreen = ({ navigation }) => {
 
   const upcomingPayments = useMemo(() => {
     const now = new Date();
+    const todayKey = getDateKey(now);
     const currentMonthKey = getMonthKey(now);
     const endOfCurrentMonth = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     const clientsMap = new Map(clients.map((client) => [client.id, client]));
@@ -181,14 +190,17 @@ const HomeScreen = ({ navigation }) => {
 
     const fromReceivables = receivables
       .map((receivable) => {
-        const dueDate = receivable.dueDate?.toDate?.() || (receivable.dueDate ? new Date(receivable.dueDate) : null);
-        if (dueDate) {
-          monthEntries.add(`${receivable.clientId}-${getMonthKey(dueDate)}`);
+        const dueDate = resolveReceivableDueDate(receivable);
+        const dueDateKey = receivable?.dueDateKey || (dueDate ? getDateKey(dueDate) : '');
+        const entryMonthKey =
+          receivable?.monthKey || (dueDate ? getMonthKey(dueDate) : dueDateKey ? dueDateKey.slice(0, 7) : '');
+        if (entryMonthKey) {
+          monthEntries.add(`${receivable.clientId}-${entryMonthKey}`);
         }
         const client = clientsMap.get(receivable.clientId) || null;
         const name = client?.name || receivable.clientName || 'Cliente';
         const amount = Number(receivable.amount ?? client?.value ?? 0);
-        const isOverdue = dueDate && now.getTime() > endOfDay(dueDate).getTime();
+        const isOverdue = Boolean(dueDateKey && dueDateKey < todayKey);
         const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
 
         return {
@@ -197,6 +209,7 @@ const HomeScreen = ({ navigation }) => {
           name,
           amount,
           dueDate,
+          dueDateKey,
           isOverdue,
           receivable,
           client,
@@ -216,6 +229,7 @@ const HomeScreen = ({ navigation }) => {
         const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
         const safeDueDay = Math.min(dueDay, daysInMonth);
         const dueDate = new Date(now.getFullYear(), now.getMonth(), safeDueDay, 12, 0, 0, 0);
+        const dueDateKey = getDateKey(dueDate);
         const amount = Number(client?.value ?? 0);
         const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
         const syntheticReceivable = {
@@ -224,6 +238,8 @@ const HomeScreen = ({ navigation }) => {
           clientName: client.name || 'Cliente',
           amount,
           monthKey: currentMonthKey,
+          dueDay: safeDueDay,
+          dueDateKey,
           dueDate,
           paid: false,
           synthetic: true,
@@ -235,7 +251,8 @@ const HomeScreen = ({ navigation }) => {
           name: client.name || 'Cliente',
           amount,
           dueDate,
-          isOverdue: now.getTime() > endOfDay(dueDate).getTime(),
+          dueDateKey,
+          isOverdue: dueDateKey < todayKey,
           receivable: syntheticReceivable,
           client,
           phoneE164,
@@ -701,8 +718,10 @@ const HomeScreen = ({ navigation }) => {
         .filter((item) => {
           if (item.clientId !== payment.clientId) return false;
           const itemDueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
-          if (!itemDueDate) return false;
-          return getMonthKey(itemDueDate) === monthKey;
+          const itemMonthKey =
+            item.monthKey || (item.dueDateKey ? String(item.dueDateKey).slice(0, 7) : itemDueDate ? getMonthKey(itemDueDate) : '');
+          if (!itemMonthKey) return false;
+          return itemMonthKey === monthKey;
         })
         .map((item) => item.id);
 
@@ -882,12 +901,12 @@ const HomeScreen = ({ navigation }) => {
                   >
                     {item.name}
                   </Text>
-                  <Text style={styles.paymentDate}>
-                    Vence{' '}
-                    {item.dueDate.toLocaleDateString('pt-BR', {
-                      day: '2-digit',
-                      month: 'short',
-                    })}
+                <Text style={styles.paymentDate}>
+                  Vence{' '}
+                  {(item.dueDate || new Date()).toLocaleDateString('pt-BR', {
+                    day: '2-digit',
+                    month: 'short',
+                  })}
                   </Text>
                   <TouchableOpacity
                     style={[

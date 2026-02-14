@@ -125,6 +125,7 @@ const App = () => {
   const setUserDoc = useClientStore((state) => state.setUserDoc);
   const setScheduleOverrides = useClientStore((state) => state.setScheduleOverrides);
   const syncPaymentsFromReceivables = useClientStore((state) => state.syncPaymentsFromReceivables);
+  const resetLocalState = useClientStore((state) => state.resetLocalState);
 
   useEffect(() => {
     const initApp = async () => {
@@ -305,6 +306,13 @@ const App = () => {
     } catch (error) {
       // ignore sign out errors
     }
+    resetLocalState();
+    try {
+      await useClientStore.persist?.clearStorage?.();
+    } catch (error) {
+      // ignore local storage cleanup errors
+    }
+    setUserDocReady(false);
     setPendingProfile(null);
     persistAppState('auth');
   };
