@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 
 import { getMonthKey, getReadableMonth } from '../utils/dateUtils';
 import { COLORS, TYPOGRAPHY } from '../constants/theme';

@@ -15,11 +15,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context'; 
-import Icon from 'react-native-vector-icons/Feather';
-import FontAwesome from 'react-native-vector-icons/FontAwesome';
+import { Feather as Icon } from '@expo/vector-icons';
+import { FontAwesome } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
-import Config from 'react-native-config';
 import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
@@ -32,6 +31,7 @@ import {
 import { auth, isFirebaseConfigured } from '../utils/firebase';
 import { getRememberMePreference, setRememberMePreference } from '../utils/authStorage';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { readEnv } from '../utils/env';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -60,10 +60,10 @@ const AuthScreen = ({ onLoginSuccess }) => {
 
   const googleClientIds = useMemo(
     () => ({
-    expo: Config.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID || Config.GOOGLE_EXPO_CLIENT_ID,
-    ios: Config.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || Config.GOOGLE_IOS_CLIENT_ID,
-    android: Config.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || Config.GOOGLE_ANDROID_CLIENT_ID,
-    web: Config.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || Config.GOOGLE_WEB_CLIENT_ID,
+      expo: readEnv('EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID', 'GOOGLE_EXPO_CLIENT_ID'),
+      ios: readEnv('EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID', 'GOOGLE_IOS_CLIENT_ID'),
+      android: readEnv('EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID', 'GOOGLE_ANDROID_CLIENT_ID'),
+      web: readEnv('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID', 'GOOGLE_WEB_CLIENT_ID'),
     }),
     [],
   );
@@ -71,6 +71,7 @@ const AuthScreen = ({ onLoginSuccess }) => {
     () => Object.values(googleClientIds).some(Boolean),
     [googleClientIds],
   );
+  const hasAuthAvailable = Boolean(isFirebaseConfigured && auth);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     expoClientId: googleClientIds.expo,
@@ -87,7 +88,7 @@ const AuthScreen = ({ onLoginSuccess }) => {
   useEffect(() => {
     const handleGoogleResponse = async () => {
       if (response?.type !== 'success') return;
-      if (!isFirebaseConfigured) {
+      if (!hasAuthAvailable) {
         Alert.alert('Configuração pendente', 'Configure o Firebase para continuar.');
         return;
       }
@@ -117,7 +118,7 @@ const AuthScreen = ({ onLoginSuccess }) => {
     };
 
     handleGoogleResponse();
-  }, [response, rememberMe, onLoginSuccess]);
+  }, [response, rememberMe, onLoginSuccess, hasAuthAvailable]);
 
   const buildProfilePayload = () => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -152,7 +153,7 @@ const AuthScreen = ({ onLoginSuccess }) => {
 
   const handlePrimaryAction = () => {
     // A lógica de validação do Firebase virá aqui no futuro.
-    if (!isFirebaseConfigured) {
+    if (!hasAuthAvailable) {
       Alert.alert('Configuração pendente', 'Configure o Firebase para continuar.');
       return;
     }
@@ -207,7 +208,7 @@ const AuthScreen = ({ onLoginSuccess }) => {
   };
 
   const handleForgotPassword = async () => {
-    if (!isFirebaseConfigured) {
+    if (!hasAuthAvailable) {
       Alert.alert('Configuração pendente', 'Configure o Firebase para continuar.');
       return;
     }
@@ -337,9 +338,9 @@ const AuthScreen = ({ onLoginSuccess }) => {
 
             <View style={styles.socialLoginContainer}>
               <TouchableOpacity
-                style={[styles.socialButton, (!hasGoogleConfig || !isFirebaseConfigured) && styles.socialButtonDisabled]}
+                style={[styles.socialButton, (!hasGoogleConfig || !hasAuthAvailable) && styles.socialButtonDisabled]}
                 onPress={() => promptAsync()}
-                disabled={!hasGoogleConfig || !request || !isFirebaseConfigured}
+                disabled={!hasGoogleConfig || !request || !hasAuthAvailable}
               >
                 <FontAwesome name="google" size={24} color={COLORS.text} />
               </TouchableOpacity>

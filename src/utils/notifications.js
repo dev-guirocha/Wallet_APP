@@ -1,4 +1,5 @@
-import { PermissionsAndroid, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 
 import { getDateKey, getNextDueDateFromDay } from './dateUtils';
 import { getAppointmentsForDate } from './schedule';
@@ -8,120 +9,78 @@ const PAYMENT_REMINDER_HOUR = 9;
 const PAYMENT_REMINDER_MINUTE = 0;
 const DEFAULT_CHANNEL_ID = 'wallet-reminders';
 
-let cachedPushNotification = null;
-let pushNotificationLoadAttempted = false;
 let notificationsConfigured = false;
 
-const getPushNotification = () => {
-  if (pushNotificationLoadAttempted) return cachedPushNotification;
-  pushNotificationLoadAttempted = true;
+const ensureAndroidChannelConfigured = async () => {
+  if (Platform.OS !== 'android') return;
 
   try {
-    const module = require('react-native-push-notification');
-    cachedPushNotification = module.default ?? module;
+    await Notifications.setNotificationChannelAsync(DEFAULT_CHANNEL_ID, {
+      name: 'Lembretes',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+      sound: 'default',
+    });
   } catch (error) {
-    cachedPushNotification = null;
+    // ignore channel setup errors
   }
-
-  return cachedPushNotification;
 };
 
-const ensureNotificationConfigured = () => {
+const ensureNotificationConfigured = async () => {
   if (notificationsConfigured) return;
 
-  const PushNotification = getPushNotification();
-  if (!PushNotification) return;
-
-  PushNotification.configure({
-    onNotification: () => {},
-    requestPermissions: Platform.OS === 'ios',
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
   });
 
-  if (Platform.OS === 'android') {
-    PushNotification.createChannel(
-      {
-        channelId: DEFAULT_CHANNEL_ID,
-        channelName: 'Lembretes',
-        channelDescription: 'Lembretes de compromissos e pagamentos',
-        soundName: 'default',
-        importance: 4,
-        vibrate: true,
-      },
-      () => {}
-    );
-  }
-
+  await ensureAndroidChannelConfigured();
   notificationsConfigured = true;
 };
 
-const requestAndroidNotificationPermission = async () => {
-  if (Platform.Version < 33) return true;
+const toPermissionStatus = (settings) => {
+  const iosStatus = settings?.ios?.status;
+  const provisional =
+    iosStatus === Notifications.IosAuthorizationStatus.PROVISIONAL ||
+    iosStatus === Notifications.IosAuthorizationStatus.EPHEMERAL;
+
+  const granted = Boolean(settings?.granted || provisional);
+  const canAsk =
+    typeof settings?.canAskAgain === 'boolean' ? settings.canAskAgain : !granted;
+
+  return { granted, canAsk };
+};
+
+export const configureNotificationHandling = () => {
+  void ensureNotificationConfigured();
+};
+
+export const requestNotificationPermissionAsync = async () => {
+  await ensureNotificationConfigured();
 
   try {
-    const result = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
-    );
-    return result === PermissionsAndroid.RESULTS.GRANTED;
+    const settings = await Notifications.requestPermissionsAsync();
+    return toPermissionStatus(settings).granted;
   } catch (error) {
     return false;
   }
 };
 
-const checkAndroidNotificationPermission = async () => {
-  if (Platform.Version < 33) {
-    return { granted: true, canAsk: true };
-  }
+export const getNotificationPermissionStatus = async () => {
+  await ensureNotificationConfigured();
 
   try {
-    const granted = await PermissionsAndroid.check(
-      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
-    );
-    return { granted, canAsk: !granted };
+    const settings = await Notifications.getPermissionsAsync();
+    return toPermissionStatus(settings);
   } catch (error) {
     return { granted: false, canAsk: false };
   }
-};
-
-const checkIosNotificationPermission = () => {
-  const PushNotification = getPushNotification();
-  if (!PushNotification) {
-    return Promise.resolve({ granted: false, canAsk: false });
-  }
-
-  return new Promise((resolve) => {
-    PushNotification.checkPermissions((permissions) => {
-      const granted = Boolean(permissions?.alert || permissions?.badge || permissions?.sound);
-      resolve({ granted, canAsk: !granted });
-    });
-  });
-};
-
-export const configureNotificationHandling = () => {
-  ensureNotificationConfigured();
-};
-
-export const requestNotificationPermissionAsync = async () => {
-  ensureNotificationConfigured();
-
-  if (Platform.OS === 'android') {
-    return requestAndroidNotificationPermission();
-  }
-
-  const PushNotification = getPushNotification();
-  if (!PushNotification) return false;
-
-  const permissions = await PushNotification.requestPermissions();
-  return Boolean(permissions?.alert || permissions?.badge || permissions?.sound);
-};
-
-export const getNotificationPermissionStatus = async () => {
-  ensureNotificationConfigured();
-
-  if (Platform.OS === 'android') {
-    return checkAndroidNotificationPermission();
-  }
-
-  return checkIosNotificationPermission();
 };
 
 export const shouldAskForNotificationPermission = async () => {
@@ -138,24 +97,33 @@ const parseClientDueDay = (dueDay) => {
   return Math.min(day, 31);
 };
 
-const scheduleLocalNotification = ({ title, message, date, data }) => {
-  const PushNotification = getPushNotification();
-  if (!PushNotification) return null;
-
+const scheduleLocalNotification = async ({ title, message, date, data, channelId }) => {
   if (!date || date <= new Date()) return null;
-  ensureNotificationConfigured();
 
-  PushNotification.localNotificationSchedule({
-    channelId: DEFAULT_CHANNEL_ID,
-    title,
-    message,
-    date,
-    allowWhileIdle: true,
-    userInfo: data,
-    data,
-  });
+  try {
+    await ensureNotificationConfigured();
 
-  return true;
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body: message,
+        data: data || {},
+        sound: 'default',
+      },
+      trigger:
+        Platform.OS === 'android'
+          ? {
+              type: Notifications.SchedulableTriggerInputTypes.DATE,
+              date,
+              channelId: channelId || DEFAULT_CHANNEL_ID,
+            }
+          : date,
+    });
+
+    return notificationId;
+  } catch (error) {
+    return null;
+  }
 };
 
 const schedulePaymentReminderAsync = async (client) => {
@@ -213,8 +181,9 @@ const scheduleAppointmentRemindersAsync = async (clients, overrides = {}) => {
   }
 
   const results = [];
-  registry.forEach(({ clientId, reminderDate, appointment, baseClient }) => {
-    const scheduled = scheduleLocalNotification({
+
+  for (const { clientId, reminderDate, appointment, baseClient } of registry) {
+    const scheduled = await scheduleLocalNotification({
       title: `Compromisso com ${appointment.name}`,
       message: `${appointment.time || baseClient.time || '--:--'} em ${appointment.location || 'local a definir'}`,
       date: reminderDate,
@@ -228,22 +197,22 @@ const scheduleAppointmentRemindersAsync = async (clients, overrides = {}) => {
     if (scheduled) {
       results.push({ clientId, scheduled });
     }
-  });
+  }
 
   return results;
 };
 
 export const rescheduleAllNotificationsAsync = async (clients, overrides = {}) => {
   try {
-    cancelAllNotificationsAsync();
+    await cancelAllNotificationsAsync();
 
     const registry = {};
     const appointmentResults = await scheduleAppointmentRemindersAsync(clients, overrides);
 
     if (Array.isArray(appointmentResults)) {
-      appointmentResults.forEach(({ clientId }) => {
+      appointmentResults.forEach(({ clientId, scheduled }) => {
         if (!registry[clientId]) registry[clientId] = [];
-        registry[clientId].push(true);
+        registry[clientId].push(scheduled);
       });
     }
 
@@ -262,14 +231,9 @@ export const rescheduleAllNotificationsAsync = async (clients, overrides = {}) =
 };
 
 export const cancelAllNotificationsAsync = async () => {
-  const PushNotification = getPushNotification();
-  if (!PushNotification) return;
-
   try {
-    PushNotification.cancelAllLocalNotifications();
-    if (PushNotification.removeAllDeliveredNotifications) {
-      PushNotification.removeAllDeliveredNotifications();
-    }
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    await Notifications.dismissAllNotificationsAsync();
   } catch (error) {
     // ignore cancellation errors
   }

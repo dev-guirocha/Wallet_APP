@@ -10,8 +10,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Svg, { Path } from 'react-native-svg';
 
 import MonthPicker from '../components/MonthPicker';
 import { useClientStore } from '../store/useClientStore';
@@ -35,45 +36,64 @@ const buildMonthEnd = (monthKey) => {
   return endOfDay(new Date(year, month, 0));
 };
 
-const buildMonthKeyFromDate = (date) => getMonthKey(date);
+const CHART_COLORS = ['#3182CE', '#38A169', '#D69E2E', '#E53E3E', '#805AD5', '#D53F8C', '#319795'];
 
-const buildHistoryBuckets = (receivables, monthKeys) => {
-  const buckets = {};
-  monthKeys.forEach((key) => {
-    buckets[key] = { monthKey: key, total: 0, paid: 0 };
-  });
-
-  receivables.forEach((item) => {
-    const dueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
-    if (!dueDate) return;
-    const key = buildMonthKeyFromDate(dueDate);
-    if (!buckets[key]) return;
-    const amount = Number(item.amount || 0);
-    if (!Number.isFinite(amount)) return;
-    buckets[key].total += amount;
-    if (item.paid) {
-      buckets[key].paid += amount;
-    }
-  });
-
-  return monthKeys.map((key) => buckets[key]);
+const normalizeLocationLabel = (value) => {
+  if (!value) return 'Sem local';
+  const normalized = String(value).trim();
+  return normalized || 'Sem local';
 };
 
-const buildMonthKeys = (baseMonthKey) => {
-  const [yearString, monthString] = String(baseMonthKey).split('-');
-  const year = Number(yearString);
-  const month = Number(monthString);
-  const baseDate = Number.isFinite(year) && Number.isFinite(month)
-    ? new Date(year, month - 1, 1)
-    : new Date();
+const polarToCartesian = (centerX, centerY, radius, angleInDegrees) => {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
+  return {
+    x: centerX + radius * Math.cos(angleInRadians),
+    y: centerY + radius * Math.sin(angleInRadians),
+  };
+};
 
-  const keys = [];
-  for (let i = 5; i >= 0; i -= 1) {
-    const date = new Date(baseDate);
-    date.setMonth(baseDate.getMonth() - i);
-    keys.push(getMonthKey(date));
-  }
-  return keys;
+const describeArc = (x, y, radius, startAngle, endAngle) => {
+  const start = polarToCartesian(x, y, radius, endAngle);
+  const end = polarToCartesian(x, y, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+  return [
+    'M',
+    start.x,
+    start.y,
+    'A',
+    radius,
+    radius,
+    0,
+    largeArcFlag,
+    0,
+    end.x,
+    end.y,
+    'L',
+    x,
+    y,
+    'Z',
+  ].join(' ');
+};
+
+const PieChart = ({ segments = [] }) => {
+  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  if (total <= 0) return null;
+
+  const radius = 74;
+  const size = radius * 2 + 10;
+  let cumulativeAngle = 0;
+
+  return (
+    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {segments.map((segment) => {
+        const angle = (segment.value / total) * 360;
+        if (angle <= 0) return null;
+        const path = describeArc(radius + 5, radius + 5, radius, cumulativeAngle, cumulativeAngle + angle);
+        cumulativeAngle += angle;
+        return <Path key={segment.id} d={path} fill={segment.color} />;
+      })}
+    </Svg>
+  );
 };
 
 const ReportsScreen = ({ navigation }) => {
@@ -83,7 +103,7 @@ const ReportsScreen = ({ navigation }) => {
   const [monthKey, setMonthKey] = useState(getMonthKey());
   const [summary, setSummary] = useState(null);
   const [clientRows, setClientRows] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [incomeByLocation, setIncomeByLocation] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
 
@@ -105,7 +125,7 @@ const ReportsScreen = ({ navigation }) => {
         if (!active) return;
         setSummary(parsed.summary || null);
         setClientRows(parsed.clientRows || []);
-        setHistory(parsed.history || []);
+        setIncomeByLocation(parsed.locationRows || []);
       } catch (error) {
         // ignore cache errors
       }
@@ -166,16 +186,24 @@ const ReportsScreen = ({ navigation }) => {
         }));
 
         clientRowsNext.sort((a, b) => b.pending - a.pending);
-
-        const historyRangeStart = buildMonthStart(buildMonthKeys(monthKey)[0]);
-        const historyRangeEnd = buildMonthEnd(monthKey);
-        const historyReceivables = await fetchReceivablesForRange({
-          uid: currentUserId,
-          startDate: historyRangeStart,
-          endDate: historyRangeEnd,
+        const locationMap = new Map();
+        receivables.forEach((item) => {
+          const amount = Number(item.amount || 0);
+          if (!Number.isFinite(amount) || amount <= 0) return;
+          const client = clientsMap.get(item.clientId);
+          const label = normalizeLocationLabel(client?.location);
+          const key = label.toLowerCase();
+          if (!locationMap.has(key)) {
+            locationMap.set(key, {
+              id: key,
+              label,
+              value: 0,
+              color: CHART_COLORS[locationMap.size % CHART_COLORS.length],
+            });
+          }
+          locationMap.get(key).value += amount;
         });
-        const historyKeys = buildMonthKeys(monthKey);
-        const historyBuckets = buildHistoryBuckets(historyReceivables, historyKeys);
+        const locationRows = Array.from(locationMap.values()).sort((a, b) => b.value - a.value);
 
         if (!active) return;
 
@@ -189,12 +217,12 @@ const ReportsScreen = ({ navigation }) => {
 
         setSummary(summaryNext);
         setClientRows(clientRowsNext);
-        setHistory(historyBuckets);
+        setIncomeByLocation(locationRows);
 
         if (cacheKey) {
           await AsyncStorage.setItem(
             cacheKey,
-            JSON.stringify({ summary: summaryNext, clientRows: clientRowsNext, history: historyBuckets })
+            JSON.stringify({ summary: summaryNext, clientRows: clientRowsNext, locationRows })
           );
         }
       } catch (error) {
@@ -212,10 +240,10 @@ const ReportsScreen = ({ navigation }) => {
     };
   }, [cacheKey, clients, currentUserId, monthKey]);
 
-  const maxHistoryTotal = useMemo(() => {
-    if (!history.length) return 1;
-    return Math.max(...history.map((item) => item.total), 1);
-  }, [history]);
+  const totalByLocation = useMemo(
+    () => incomeByLocation.reduce((sum, item) => sum + Number(item.value || 0), 0),
+    [incomeByLocation]
+  );
 
   const renderClientRow = ({ item }) => (
     <TouchableOpacity
@@ -306,18 +334,34 @@ const ReportsScreen = ({ navigation }) => {
         ) : null}
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Últimos 6 meses</Text>
-          <View style={styles.historyRow}>
-            {history.map((item) => {
-              const height = Math.max(8, (item.total / maxHistoryTotal) * 80);
-              return (
-                <View key={item.monthKey} style={styles.historyItem}>
-                  <View style={[styles.historyBar, { height }]} />
-                  <Text style={styles.historyLabel}>{item.monthKey.slice(5)}</Text>
-                </View>
-              );
-            })}
-          </View>
+          <Text style={styles.cardTitle}>Origem da renda por local</Text>
+          {incomeByLocation.length > 0 ? (
+            <>
+              <View style={styles.pieContainer}>
+                <PieChart segments={incomeByLocation} />
+              </View>
+              <View style={styles.legendList}>
+                {incomeByLocation.map((item) => {
+                  const percentage = totalByLocation > 0 ? (item.value / totalByLocation) * 100 : 0;
+                  return (
+                    <View key={item.id} style={styles.legendRow}>
+                      <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                      <Text style={styles.legendLabel} numberOfLines={1}>
+                        {item.label}
+                      </Text>
+                      <Text style={styles.legendValue}>
+                        {formatCurrency(item.value)} ({percentage.toFixed(1)}%)
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </>
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>Sem receita para exibir por local neste mês.</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.sectionHeader}>
@@ -378,14 +422,12 @@ const styles = StyleSheet.create({
   },
   progressPaid: { height: '100%', backgroundColor: COLORS.primary },
   progressLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 6 },
-  historyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  historyItem: { alignItems: 'center', flex: 1 },
-  historyBar: {
-    width: 12,
-    backgroundColor: COLORS.primary,
-    borderRadius: 6,
-  },
-  historyLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 6 },
+  pieContainer: { alignItems: 'center', marginTop: 8, marginBottom: 12 },
+  legendList: { gap: 8 },
+  legendRow: { flexDirection: 'row', alignItems: 'center' },
+  legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  legendLabel: { ...TYPOGRAPHY.caption, color: COLORS.textPrimary, flex: 1, marginRight: 8 },
+  legendValue: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
   sectionHeader: { marginTop: 20, marginBottom: 10 },
   sectionTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
   emptyCard: {

@@ -11,10 +11,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 
 import { useClientStore } from '../store/useClientStore';
 import { saveUserProfile } from '../utils/firestoreService';
+import { auth } from '../utils/firebase';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
 const EditProfileScreen = ({ navigation }) => {
@@ -41,29 +42,51 @@ const EditProfileScreen = ({ navigation }) => {
       Alert.alert('Telefone', 'Informe um número válido com DDD.');
       return;
     }
-    if (!currentUserId) {
+    const uid = currentUserId || auth?.currentUser?.uid || null;
+    if (!uid) {
       Alert.alert('Conta', 'Não foi possível identificar o usuário.');
       return;
     }
+
+    const trimmedPhone = phone.trim();
+    const trimmedProfession = profession.trim();
+    console.log('[profile] edit:save:start', { uid, hasEmail: Boolean(userEmail) });
     setIsSaving(true);
     try {
-      await saveUserProfile({
-        uid: currentUserId,
+      const remoteSavePromise = saveUserProfile({
+        uid,
         profile: {
           name: trimmed,
           email: userEmail || '',
-          phone: phone.trim(),
-          profession: profession.trim(),
+          phone: trimmedPhone,
+          profession: trimmedProfession,
           birthdate: userBirthdate || '',
         },
       });
+
+      remoteSavePromise
+        .then(() => console.log('[profile] edit:save:sync:ok'))
+        .catch((syncError) =>
+          console.warn('[profile] edit:save:sync:error', {
+            message: syncError?.message || '',
+            code: syncError?.code || 'unknown',
+          })
+        );
+
+      await remoteSavePromise;
+
       setUserDoc({
         name: trimmed,
-        phone: phone.trim(),
-        profession: profession.trim(),
+        phone: trimmedPhone,
+        profession: trimmedProfession,
       });
+      console.log('[profile] edit:save:done');
       navigation.goBack();
     } catch (error) {
+      console.warn('[profile] edit:save:catch', {
+        message: error?.message || '',
+        code: error?.code || 'unknown',
+      });
       Alert.alert('Erro', 'Não foi possível atualizar o perfil.');
     } finally {
       setIsSaving(false);

@@ -12,11 +12,12 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { useClientStore } from '../store/useClientStore';
+import { auth } from '../utils/firebase';
 import { saveUserProfile } from '../utils/firestoreService';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 
@@ -99,6 +100,7 @@ const getAgeFromBirthdate = (date) => {
 };
 
 const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
+  const insets = useSafeAreaInsets();
   const setClientTerm = useClientStore((state) => state.setClientTerm);
   const setUserProfile = useClientStore((state) => state.setUserProfile);
   const currentUserId = useClientStore((state) => state.currentUserId);
@@ -119,6 +121,9 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
 
   const normalizedPhone = useMemo(() => formatPhoneBR(phone), [phone]);
   const ageNumber = useMemo(() => getAgeFromBirthdate(birthdate), [birthdate]);
+  const topSpacing = Platform.OS === 'ios'
+    ? Math.max(insets.top + 10, 42)
+    : Math.max(insets.top + 12, 24);
 
   const openBirthdatePicker = () => {
     setBirthdateDraft(birthdate);
@@ -182,10 +187,11 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
       profession: trimmedProfession,
     });
 
-    if (currentUserId) {
+    const uid = currentUserId || auth?.currentUser?.uid || null;
+    if (uid) {
       try {
         await saveUserProfile({
-          uid: currentUserId,
+          uid,
           profile: {
             name: trimmedName,
             birthdate: getDateKey(birthdate),
@@ -203,7 +209,7 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -211,7 +217,7 @@ const ProfileSetupScreen = ({ onComplete, initialProfile }) => {
       >
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={styles.container}
+          contentContainerStyle={[styles.container, { paddingTop: topSpacing }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >

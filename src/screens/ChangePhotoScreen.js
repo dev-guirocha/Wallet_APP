@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useClientStore } from '../store/useClientStore';
 import { updateUserPhoto, uploadUserProfilePhoto } from '../utils/firestoreService';
@@ -21,6 +21,8 @@ const ChangePhotoScreen = ({ navigation }) => {
 
   const [selectedImage, setSelectedImage] = useState(photoURL || '');
   const [selectedFileName, setSelectedFileName] = useState('');
+  const [selectedBase64, setSelectedBase64] = useState('');
+  const [selectedMimeType, setSelectedMimeType] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   const handlePickImage = async () => {
@@ -30,6 +32,8 @@ const ChangePhotoScreen = ({ navigation }) => {
       maxWidth: 1200,
       maxHeight: 1200,
       selectionLimit: 1,
+      includeBase64: true,
+      assetRepresentationMode: 'compatible',
     });
 
     if (result.didCancel) return;
@@ -41,6 +45,8 @@ const ChangePhotoScreen = ({ navigation }) => {
     if (asset?.uri) {
       setSelectedImage(asset.uri);
       setSelectedFileName(asset.fileName || '');
+      setSelectedBase64(asset.base64 || '');
+      setSelectedMimeType(asset.type || '');
       return;
     }
     Alert.alert('Foto', 'Não foi possível obter a imagem selecionada.');
@@ -66,6 +72,8 @@ const ChangePhotoScreen = ({ navigation }) => {
         uid: currentUserId,
         uri: selectedImage,
         fileName: selectedFileName || selectedImage,
+        base64Data: selectedBase64,
+        mimeType: selectedMimeType,
       });
       if (!downloadUrl) {
         throw new Error('upload_failed');

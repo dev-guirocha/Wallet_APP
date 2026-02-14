@@ -9,6 +9,7 @@ package-lock.json
 # Arquivos de cache e configuração do Expo
 .expo/
 .expo-shared/
+dist/
 
 # Variáveis de ambiente
 .env

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SwipeListView } from 'react-native-swipe-list-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import { formatCurrency, getMonthKey } from '../utils/dateUtils';
@@ -24,6 +24,11 @@ const normalizePaymentStatus = (entry) => {
   const rawStatus = typeof entry === 'string' ? entry : entry?.status;
   if (!rawStatus) return 'pending';
   return rawStatus === 'paid' || rawStatus === 'pago' ? 'paid' : 'pending';
+};
+
+const getClientName = (client) => {
+  const normalized = String(client?.name || '').trim();
+  return normalized || 'Sem nome';
 };
 
 const ClientsScreen = ({ navigation }) => {
@@ -39,21 +44,24 @@ const ClientsScreen = ({ navigation }) => {
     return clients.map((client) => {
       const status = normalizePaymentStatus(client.payments?.[currentMonthKey]);
       const isPaid = status === 'paid';
+      const clientName = getClientName(client);
+      const dueDay = Number(client?.dueDay);
       return {
         ...client,
-        statusLabel: isPaid ? 'Pago' : `Vence dia ${client.dueDay}`,
+        statusLabel: isPaid ? 'Pago' : Number.isFinite(dueDay) && dueDay > 0 ? `Vence dia ${dueDay}` : 'Pendente',
         isPaid,
+        clientName,
       };
     });
   }, [clients, currentMonthKey]);
 
   const filteredClients = useMemo(() => {
-    const query = searchQuery.toLowerCase();
+    const query = String(searchQuery || '').toLowerCase();
     return clientsWithStatus
-      .filter((client) => client.name.toLowerCase().includes(query))
+      .filter((client) => String(client.clientName || '').toLowerCase().includes(query))
       .sort((a, b) => {
         if (a.isPaid !== b.isPaid) return a.isPaid ? 1 : -1;
-        return a.name.localeCompare(b.name);
+        return String(a.clientName || '').localeCompare(String(b.clientName || ''));
       });
   }, [searchQuery, clientsWithStatus]);
 
@@ -93,14 +101,14 @@ const ClientsScreen = ({ navigation }) => {
               >
                 <Text style={[styles.avatarText, { color: avatarTextColor }]}
                 >
-                  {item.name?.charAt(0)?.toUpperCase()}
+                  {item.clientName.charAt(0).toUpperCase()}
                 </Text>
               </View>
               <View style={styles.nameBlock}
               >
                 <Text style={styles.clientName} numberOfLines={1}
                 >
-                  {item.name}
+                  {item.clientName}
                 </Text>
                 <Text style={[styles.statusText, item.isPaid ? styles.textSuccess : styles.textWarning]}
                 >
@@ -186,7 +194,7 @@ const ClientsScreen = ({ navigation }) => {
       <SwipeListView
         ref={swipeListViewRef}
         data={filteredClients}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item?.id || `client-${index}`}
         renderItem={renderClientCard}
         renderHiddenItem={renderHiddenActions}
         leftOpenValue={75}

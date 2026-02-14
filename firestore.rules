@@ -9,17 +9,206 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // WalletAPP security rules (v1)
-    // Only the authenticated owner can access their own user document subtree.
+    function changedOnly(allowed) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowed);
+    }
+
+    function isValidMonthKey(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}$');
+    }
+
+    function isValidDateKey(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function validUserShape(data) {
+      return (
+        (!data.keys().hasAny(['name']) || data.name is string) &&
+        (!data.keys().hasAny(['email']) || data.email is string) &&
+        (!data.keys().hasAny(['phone']) || data.phone is string) &&
+        (!data.keys().hasAny(['birthdate']) || data.birthdate is string) &&
+        (!data.keys().hasAny(['profession']) || data.profession is string) &&
+        (!data.keys().hasAny(['photoURL']) || data.photoURL is string) &&
+        (!data.keys().hasAny(['migrationVersion']) || data.migrationVersion is int) &&
+        (!data.keys().hasAny(['privacy']) || data.privacy is map) &&
+        (!data.keys().hasAny(['templates']) || data.templates is map) &&
+        (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp) &&
+        (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp) &&
+        (!data.keys().hasAny(['migratedAt']) || data.migratedAt is timestamp)
+      );
+    }
+
+    function validClientShape(data) {
+      return (
+        (!data.keys().hasAny(['name']) || data.name is string) &&
+        (!data.keys().hasAny(['location']) || data.location is string) &&
+        (!data.keys().hasAny(['phone']) || data.phone is string) &&
+        (!data.keys().hasAny(['phoneRaw']) || data.phoneRaw is string) &&
+        (!data.keys().hasAny(['phoneE164']) || data.phoneE164 is string) &&
+        (!data.keys().hasAny(['time']) || data.time is string) &&
+        (!data.keys().hasAny(['value']) || (data.value is number && data.value >= 0)) &&
+        (!data.keys().hasAny(['valueFormatted']) || data.valueFormatted is string) &&
+        (!data.keys().hasAny(['dueDay']) || (data.dueDay is int && data.dueDay >= 1 && data.dueDay <= 31)) &&
+        (!data.keys().hasAny(['days']) || data.days is list) &&
+        (!data.keys().hasAny(['dayTimes']) || data.dayTimes is map) &&
+        (!data.keys().hasAny(['payments']) || data.payments is map) &&
+        (!data.keys().hasAny(['notificationsPaymentOptIn']) || data.notificationsPaymentOptIn is bool) &&
+        (!data.keys().hasAny(['notificationsScheduleOptIn']) || data.notificationsScheduleOptIn is bool) &&
+        (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp) &&
+        (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp) &&
+        (!data.keys().hasAny(['deletedAt']) || data.deletedAt is timestamp)
+      );
+    }
+
+    function validExpenseShape(data) {
+      return (
+        (!data.keys().hasAny(['title']) || data.title is string) &&
+        (!data.keys().hasAny(['category']) || data.category is string) &&
+        (!data.keys().hasAny(['categoryLabel']) || data.categoryLabel is string) &&
+        (!data.keys().hasAny(['date']) || data.date is string) &&
+        (!data.keys().hasAny(['value']) || (data.value is number && data.value >= 0)) &&
+        (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp) &&
+        (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp) &&
+        (!data.keys().hasAny(['deletedAt']) || data.deletedAt is timestamp)
+      );
+    }
+
+    function validReceivableShape(data) {
+      return (
+        (!data.keys().hasAny(['clientId']) || data.clientId is string) &&
+        (!data.keys().hasAny(['clientName']) || data.clientName is string) &&
+        (!data.keys().hasAny(['amount']) || (data.amount is number && data.amount >= 0)) &&
+        (!data.keys().hasAny(['monthKey']) || isValidMonthKey(data.monthKey)) &&
+        (!data.keys().hasAny(['dueDateKey']) || isValidDateKey(data.dueDateKey)) &&
+        (!data.keys().hasAny(['dueDay']) || (data.dueDay is int && data.dueDay >= 1 && data.dueDay <= 31)) &&
+        (!data.keys().hasAny(['dueDate']) || data.dueDate is timestamp) &&
+        (!data.keys().hasAny(['paid']) || data.paid is bool) &&
+        (!data.keys().hasAny(['paidAt']) || data.paidAt is timestamp) &&
+        (!data.keys().hasAny(['lastChargeSentAt']) || data.lastChargeSentAt is timestamp) &&
+        (!data.keys().hasAny(['chargeHistory']) || data.chargeHistory is list) &&
+        (!data.keys().hasAny(['paymentMethod']) || data.paymentMethod is string) &&
+        (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp)
+      );
+    }
+
+    function validAppointmentShape(data) {
+      return (
+        (!data.keys().hasAny(['appointmentKey']) || data.appointmentKey is string) &&
+        (!data.keys().hasAny(['clientId']) || data.clientId is string) &&
+        (!data.keys().hasAny(['dateKey']) || isValidDateKey(data.dateKey)) &&
+        (!data.keys().hasAny(['name']) || data.name is string) &&
+        (!data.keys().hasAny(['time']) || data.time is string) &&
+        (!data.keys().hasAny(['location']) || data.location is string) &&
+        (!data.keys().hasAny(['note']) || data.note is string) &&
+        (!data.keys().hasAny(['status']) || data.status is string) &&
+        (!data.keys().hasAny(['action']) || data.action is string) &&
+        (!data.keys().hasAny(['confirmationStatus']) || data.confirmationStatus is string) &&
+        (!data.keys().hasAny(['startAt']) || data.startAt is timestamp) &&
+        (!data.keys().hasAny(['rescheduledTo']) || data.rescheduledTo is timestamp) &&
+        (!data.keys().hasAny(['statusUpdatedAt']) || data.statusUpdatedAt is timestamp) &&
+        (!data.keys().hasAny(['confirmationRespondedAt']) || data.confirmationRespondedAt is timestamp) &&
+        (!data.keys().hasAny(['confirmationSentAt']) || data.confirmationSentAt is timestamp) &&
+        (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp)
+      );
+    }
+
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'name', 'email', 'phone', 'birthdate', 'profession', 'photoURL',
+          'privacy', 'templates', 'createdAt', 'updatedAt', 'migratedAt', 'migrationVersion'
+        ])
+        && validUserShape(request.resource.data);
+      allow update: if isOwner(userId)
+        && changedOnly([
+          'name', 'email', 'phone', 'birthdate', 'profession', 'photoURL',
+          'privacy', 'templates', 'createdAt', 'updatedAt', 'migratedAt', 'migrationVersion'
+        ])
+        && validUserShape(request.resource.data);
+      allow delete: if false;
+
+      match /clients/{clientId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasOnly([
+            'id', 'name', 'location', 'phone', 'phoneRaw', 'phoneE164',
+            'days', 'time', 'value', 'valueFormatted', 'dueDay', 'dayTimes', 'payments',
+            'notificationsPaymentOptIn', 'notificationsScheduleOptIn',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && validClientShape(request.resource.data);
+        allow update: if isOwner(userId)
+          && changedOnly([
+            'id', 'name', 'location', 'phone', 'phoneRaw', 'phoneE164',
+            'days', 'time', 'value', 'valueFormatted', 'dueDay', 'dayTimes', 'payments',
+            'notificationsPaymentOptIn', 'notificationsScheduleOptIn',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && validClientShape(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasOnly([
+            'id', 'title', 'category', 'categoryLabel', 'date', 'value',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && validExpenseShape(request.resource.data);
+        allow update: if isOwner(userId)
+          && changedOnly([
+            'id', 'title', 'category', 'categoryLabel', 'date', 'value',
+            'createdAt', 'updatedAt', 'deletedAt'
+          ])
+          && validExpenseShape(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /receivables/{receivableId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasOnly([
+            'clientId', 'clientName', 'amount', 'monthKey', 'dueDay',
+            'dueDateKey', 'dueDate', 'paid', 'paidAt', 'lastChargeSentAt',
+            'chargeHistory', 'paymentMethod', 'updatedAt'
+          ])
+          && validReceivableShape(request.resource.data);
+        allow update: if isOwner(userId)
+          && changedOnly([
+            'clientId', 'clientName', 'amount', 'monthKey', 'dueDay',
+            'dueDateKey', 'dueDate', 'paid', 'paidAt', 'lastChargeSentAt',
+            'chargeHistory', 'paymentMethod', 'updatedAt'
+          ])
+          && validReceivableShape(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /appointments/{appointmentId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasOnly([
+            'appointmentKey', 'clientId', 'dateKey', 'name', 'time', 'location', 'note',
+            'status', 'action', 'confirmationStatus', 'startAt', 'rescheduledTo',
+            'statusUpdatedAt', 'confirmationRespondedAt', 'confirmationSentAt', 'updatedAt'
+          ])
+          && validAppointmentShape(request.resource.data);
+        allow update: if isOwner(userId)
+          && changedOnly([
+            'appointmentKey', 'clientId', 'dateKey', 'name', 'time', 'location', 'note',
+            'status', 'action', 'confirmationStatus', 'startAt', 'rescheduledTo',
+            'statusUpdatedAt', 'confirmationRespondedAt', 'confirmationSentAt', 'updatedAt'
+          ])
+          && validAppointmentShape(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
 
       match /{document=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if false;
       }
     }
 
-    // Deny everything else by default.
     match /{document=**} {
       allow read, write: if false;
     }

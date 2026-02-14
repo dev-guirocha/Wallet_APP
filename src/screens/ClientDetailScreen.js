@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
@@ -98,20 +98,7 @@ const ClientDetailScreen = ({ route, navigation }) => {
     state.clients.find((item) => item.id === (clientId || client?.id))
   );
   const activeClient = resolvedClient || client;
-
-  if (!activeClient) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Icon name="arrow-left" size={28} color={COLORS.text} />
-          </TouchableOpacity>
-          <Text style={styles.title}>Cliente não encontrado</Text>
-          <View style={{ width: 28 }} />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const safeClient = activeClient || {};
 
   const currentMonthKey = getCurrentMonthKey();
   const isPaidThisMonth = normalizePaymentStatus(activeClient?.payments?.[currentMonthKey]) === 'paid';
@@ -131,6 +118,7 @@ const ClientDetailScreen = ({ route, navigation }) => {
         const formattedMonth = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)}/${String(year).slice(2)}`;
         const status = normalizePaymentStatus(entry);
         return {
+          monthKey,
           month: formattedMonth,
           status: status === 'paid' ? 'Pago' : 'Pendente',
           color: status === 'paid' ? COLORS.success : COLORS.warning,
@@ -149,20 +137,21 @@ const ClientDetailScreen = ({ route, navigation }) => {
     return paymentHistory;
   }, [paymentHistory, historyFilter]);
 
-  const phoneDisplay = activeClient.phone || 'Não informado';
-  const currencyDisplay = activeClient.valueFormatted ?? formatCurrencyBR(activeClient.value);
-  const daysArray = Array.isArray(activeClient.days) ? activeClient.days : [];
+  const phoneDisplay = safeClient.phone || 'Não informado';
+  const currencyDisplay = safeClient.valueFormatted ?? formatCurrencyBR(safeClient.value);
+  const daysArray = Array.isArray(safeClient.days) ? safeClient.days : [];
   const daysDisplay = daysArray.length ? daysArray.join(', ') : 'Não informado';
-  const nextAppt = getNextAppointment(activeClient || {});
+  const nextAppt = getNextAppointment(safeClient);
   const timeDisplay = nextAppt.time || 'Não informado';
 
 
   const handleWhatsAppConfirm = async () => {
-    if (!activeClient?.phone) return;
-    const phoneE164 = activeClient.phoneE164 || buildPhoneE164FromRaw(activeClient.phoneRaw || activeClient.phone || '');
+    if (!safeClient?.phone) return;
+    const phoneE164 =
+      safeClient.phoneE164 || buildPhoneE164FromRaw(safeClient.phoneRaw || safeClient.phone || '');
     if (!phoneE164) return;
     const dia = nextAppt.label || 'hoje';
-    const msg = `Olá, ${activeClient.name}!\n\nConfirmando seu horário de ${dia} às ${timeDisplay}.\n\nSe precisar reagendar, por favor me avise. Obrigado!`;
+    const msg = `Olá, ${safeClient.name || 'Cliente'}!\n\nConfirmando seu horário de ${dia} às ${timeDisplay}.\n\nSe precisar reagendar, por favor me avise. Obrigado!`;
     await openWhatsAppWithMessage({ phoneE164, message: msg });
   };
 
@@ -238,6 +227,20 @@ const ClientDetailScreen = ({ route, navigation }) => {
     </View>
   );
 
+  if (!activeClient) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Icon name="arrow-left" size={28} color={COLORS.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Cliente não encontrado</Text>
+          <View style={{ width: 28 }} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -308,8 +311,8 @@ const ClientDetailScreen = ({ route, navigation }) => {
         </View>
 
         <Text style={styles.sectionTitle}>Histórico de Pagamentos</Text>
-        {filteredHistory.map((item, index) => (
-          <View key={index} style={styles.historyRow}>
+        {filteredHistory.map((item) => (
+          <View key={item.monthKey} style={styles.historyRow}>
             <Text style={styles.historyMonth}>{item.month}</Text>
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={styles.amountText}>{item.amountLabel}</Text>

@@ -343,7 +343,7 @@ export const uploadUserProfilePhoto = async ({ uid, uri, fileName, base64Data, m
     const fileUri = normalizeFileUri(uri);
     try {
       base64 = await FileSystem.readAsStringAsync(fileUri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
     } catch (error) {
       base64 = '';

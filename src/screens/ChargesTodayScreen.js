@@ -57,6 +57,11 @@ const resolveReceivableDueDate = (receivable) => {
   return fromKey instanceof Date && !Number.isNaN(fromKey.getTime()) ? fromKey : null;
 };
 
+const formatDueDateLabel = (value) => {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return 'Vencimento não definido';
+  return `Vence em ${formatDateLabel(value)}`;
+};
+
 const ChargesTodayScreen = ({ navigation }) => {
   const currentUserId = useClientStore((state) => state.currentUserId);
   const templates = useClientStore((state) => state.templates);
@@ -138,7 +143,17 @@ const ChargesTodayScreen = ({ navigation }) => {
 
   const handleCharge = async (item) => {
     if (!currentUserId || !item) return;
-    const dueDate = item.dueDate || new Date();
+    const dueDate = item.dueDate;
+    if (!(dueDate instanceof Date) || Number.isNaN(dueDate.getTime())) {
+      Alert.alert('Cobrança', 'Defina o vencimento do cliente para enviar cobrança.', [
+        { text: 'Agora não', style: 'cancel' },
+        {
+          text: 'Editar cliente',
+          onPress: () => navigation.navigate('AddClient', { clientId: item.clientId }),
+        },
+      ]);
+      return;
+    }
 
     const last = item.receivable?.lastChargeSentAt;
     if (last) {
@@ -289,7 +304,14 @@ const ChargesTodayScreen = ({ navigation }) => {
             <View style={styles.card}>
               <View style={styles.cardInfo}>
                 <Text style={styles.name}>{item.name}</Text>
-                <Text style={styles.subLabel}>Vence em {formatDateLabel(item.dueDate)}</Text>
+                <Text
+                  style={[
+                    styles.subLabel,
+                    !item.dueDate && styles.subLabelWarning,
+                  ]}
+                >
+                  {formatDueDateLabel(item.dueDate)}
+                </Text>
                 {item.chargeDate ? (
                   <Text style={styles.subLabel}>
                     Última cobrança: {item.chargeDate.toLocaleString('pt-BR')}
@@ -319,8 +341,9 @@ const ChargesTodayScreen = ({ navigation }) => {
                   }
                   return (
                     <TouchableOpacity
-                      style={styles.chargeButton}
+                      style={[styles.chargeButton, !item.dueDate && styles.chargeButtonDisabled]}
                       onPress={() => handleCharge(item)}
+                      disabled={!item.dueDate}
                     >
                       <Icon name="message-circle" size={16} color={COLORS.textOnPrimary} />
                       <Text style={styles.chargeText}>Cobrar</Text>
@@ -374,6 +397,7 @@ const styles = StyleSheet.create({
   cardActions: { alignItems: 'flex-end' },
   name: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
   subLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 4 },
+  subLabelWarning: { color: COLORS.warning },
   amount: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary, marginTop: 8 },
   chargeButton: {
     flexDirection: 'row',
@@ -393,6 +417,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   paidButtonDisabled: { opacity: 0.7 },
+  chargeButtonDisabled: { opacity: 0.55 },
   chargeText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary, marginLeft: 6 },
 });
 

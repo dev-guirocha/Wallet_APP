@@ -1,6 +1,6 @@
 // /src/screens/AddClientScreen.js
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Platform,
   View,
@@ -14,7 +14,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useClientStore } from '../store/useClientStore';
 import { buildPhoneE164FromRaw } from '../utils/whatsapp';
@@ -32,8 +32,22 @@ const COLORS = {
 };
 
 const WEEKDAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+const WEEKDAY_ORDER = WEEKDAYS.reduce((acc, day, index) => {
+  acc[day] = index;
+  return acc;
+}, {});
 const TIME_SUFFIX = 'h';
 const DEFAULT_TIME_HOUR = 9;
+
+const sortWeekdays = (days = []) =>
+  [...days].sort((a, b) => {
+    const orderA = WEEKDAY_ORDER[a];
+    const orderB = WEEKDAY_ORDER[b];
+    if (orderA === undefined && orderB === undefined) return String(a).localeCompare(String(b));
+    if (orderA === undefined) return 1;
+    if (orderB === undefined) return -1;
+    return orderA - orderB;
+  });
 
 const createBaseTime = () => {
   const date = new Date();
@@ -117,7 +131,9 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
 
   const [name, setName] = useState(editingClient?.name ?? '');
   const [location, setLocation] = useState(editingClient?.location ?? '');
-  const [selectedDays, setSelectedDays] = useState(Array.isArray(editingClient?.days) ? [...editingClient.days] : []);
+  const [selectedDays, setSelectedDays] = useState(
+    Array.isArray(editingClient?.days) ? sortWeekdays(editingClient.days) : []
+  );
   const [dayTimes, setDayTimes] = useState(editingClient?.dayTimes ? { ...editingClient.dayTimes } : {});
   const initialTimeDate = parseTimeStringToDate(editingClient?.time);
   const [classTimeDate, setClassTimeDate] = useState(initialTimeDate);
@@ -138,12 +154,14 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
   const [notificationsScheduleOptIn, setNotificationsScheduleOptIn] = useState(
     editingClient?.notificationsScheduleOptIn !== undefined ? editingClient.notificationsScheduleOptIn : true,
   );
+  const [isSaving, setIsSaving] = useState(false);
+  const saveLockRef = useRef(false);
 
   useEffect(() => {
     if (editingClient) {
       setName(editingClient.name || '');
       setLocation(editingClient.location || '');
-      setSelectedDays(Array.isArray(editingClient.days) ? [...editingClient.days] : []);
+      setSelectedDays(Array.isArray(editingClient.days) ? sortWeekdays(editingClient.days) : []);
       const nextDate = parseTimeStringToDate(editingClient.time || '');
       setClassTimeDate(nextDate);
       setClassTimeLabel(editingClient.time ? formatTimeLabel(nextDate) : '');
@@ -165,17 +183,18 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
   }, [editingClient, clientToEdit]);
 
   const toggleDay = (day) => {
-    if (selectedDays.includes(day)) {
-      setSelectedDays(selectedDays.filter(d => d !== day));
-      setDayTimes((prev) => {
-        if (!prev[day]) return prev;
-        const next = { ...prev };
-        delete next[day];
-        return next;
-      });
-    } else {
-      setSelectedDays([...selectedDays, day]);
-    }
+    setSelectedDays((prev) => {
+      if (prev.includes(day)) {
+        setDayTimes((current) => {
+          if (!current[day]) return current;
+          const next = { ...current };
+          delete next[day];
+          return next;
+        });
+        return prev.filter((d) => d !== day);
+      }
+      return sortWeekdays([...prev, day]);
+    });
   };
 
   const handleTimePickerChange = (event, date) => {
@@ -291,92 +310,114 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
     setShowTimePicker(true);
   };
 
-  const handleSave = () => {
-    if (!name.trim()) {
-      Alert.alert('Campo obrigatório', `Informe o nome do ${term.toLowerCase()}.`);
-      return;
-    }
+  const handleSave = async () => {
+    if (saveLockRef.current) return;
+    saveLockRef.current = true;
+    setIsSaving(true);
 
-    if (!classTimeLabel) {
-      Alert.alert('Campo obrigatório', 'Selecione o horário do atendimento.');
-      setTimeBeforePicker({ date: new Date(classTimeDate), label: classTimeLabel });
-      setShowTimePicker(true);
-      return;
-    }
-
-    const currencyNumber = unformatCurrencyToNumber(monthlyValue);
-    if (!Number.isFinite(currencyNumber) || currencyNumber <= 0) {
-      Alert.alert('Valor inválido', 'Informe um valor mensal válido.');
-      return;
-    }
-
-    const due = parseInt(onlyDigits(dueDate), 10);
-    if (!Number.isFinite(due) || due < 1 || due > 31) {
-      Alert.alert('Data de pagamento inválida', 'Informe um dia entre 1 e 31.');
-      return;
-    }
-
-    const phoneDigits = onlyDigits(phone);
-    if (!phoneDigits || (phoneDigits.length !== 10 && phoneDigits.length !== 11)) {
-      Alert.alert('Telefone obrigatório', 'Informe um telefone válido com DDD.');
-      return;
-    }
-    // Validação de DDD brasileiro e regra simples de celular (11 dígitos começa com 9)
-    const validDDDs = new Set(['11','12','13','14','15','16','17','18','19','21','22','24','27','28','31','32','33','34','35','37','38','41','42','43','44','45','46','47','48','49','51','53','54','55','61','62','63','64','65','66','67','68','69','71','73','74','75','77','79','81','82','83','84','85','86','87','88','89','91','92','93','94','95','96','97','98','99']);
-    const ddd = phoneDigits.slice(0, 2);
-    if (!validDDDs.has(ddd)) {
-      Alert.alert('DDD inválido', 'Informe um DDD válido do Brasil.');
-      return;
-    }
-    if (phoneDigits.length === 11 && phoneDigits[2] !== '9') {
-      Alert.alert('Telefone inválido', 'Celular com 11 dígitos deve começar com 9.');
-      return;
-    }
-
-    const phoneE164 = buildPhoneE164FromRaw(phoneDigits);
-
-    const newClientData = {
-      name,
-      location,
-      phone,
-      phoneRaw: phoneDigits,
-      phoneE164,
-      days: selectedDays,
-      time: classTimeLabel,
-      value: currencyNumber,
-      valueFormatted: monthlyValue,
-      dueDay: due,
-      dayTimes: selectedDays.reduce((acc, day) => {
-        if (dayTimes[day]) {
-          acc[day] = dayTimes[day];
-        }
-        return acc;
-      }, {}),
-      notificationsPaymentOptIn,
-      notificationsScheduleOptIn,
-    };
-    if (isEditing) {
-      if (editingClient?.id) {
-        updateClient(editingClient.id, newClientData);
+    try {
+      if (!name.trim()) {
+        Alert.alert('Campo obrigatório', `Informe o nome do ${term.toLowerCase()}.`);
+        return;
       }
+
+      const hasDefaultTime = Boolean(classTimeLabel);
+      const missingDayTimes = selectedDays.filter((day) => !dayTimes[day]);
+      const hasAnySelectedDay = selectedDays.length > 0;
+      const hasCompleteDayTimes = hasAnySelectedDay && missingDayTimes.length === 0;
+
+      if (!hasDefaultTime && !hasCompleteDayTimes) {
+        const message = hasAnySelectedDay
+          ? 'Defina um horário padrão ou preencha horários para todos os dias selecionados.'
+          : 'Selecione o horário do atendimento.';
+        Alert.alert('Campo obrigatório', message);
+        if (!hasAnySelectedDay) {
+          setPickerContext({ type: 'default', day: null });
+          setTimeBeforePicker({ date: new Date(classTimeDate), label: classTimeLabel });
+          setShowTimePicker(true);
+        }
+        return;
+      }
+
+      const currencyNumber = unformatCurrencyToNumber(monthlyValue);
+      if (!Number.isFinite(currencyNumber) || currencyNumber <= 0) {
+        Alert.alert('Valor inválido', 'Informe um valor mensal válido.');
+        return;
+      }
+
+      const due = parseInt(onlyDigits(dueDate), 10);
+      if (!Number.isFinite(due) || due < 1 || due > 31) {
+        Alert.alert('Data de pagamento inválida', 'Informe um dia entre 1 e 31.');
+        return;
+      }
+
+      const phoneDigits = onlyDigits(phone);
+      if (!phoneDigits || (phoneDigits.length !== 10 && phoneDigits.length !== 11)) {
+        Alert.alert('Telefone obrigatório', 'Informe um telefone válido com DDD.');
+        return;
+      }
+      // Validação de DDD brasileiro e regra simples de celular (11 dígitos começa com 9)
+      const validDDDs = new Set(['11','12','13','14','15','16','17','18','19','21','22','24','27','28','31','32','33','34','35','37','38','41','42','43','44','45','46','47','48','49','51','53','54','55','61','62','63','64','65','66','67','68','69','71','73','74','75','77','79','81','82','83','84','85','86','87','88','89','91','92','93','94','95','96','97','98','99']);
+      const ddd = phoneDigits.slice(0, 2);
+      if (!validDDDs.has(ddd)) {
+        Alert.alert('DDD inválido', 'Informe um DDD válido do Brasil.');
+        return;
+      }
+      if (phoneDigits.length === 11 && phoneDigits[2] !== '9') {
+        Alert.alert('Telefone inválido', 'Celular com 11 dígitos deve começar com 9.');
+        return;
+      }
+
+      const phoneE164 = buildPhoneE164FromRaw(phoneDigits);
+
+      const orderedSelectedDays = sortWeekdays(selectedDays);
+
+      const newClientData = {
+        name,
+        location,
+        phone,
+        phoneRaw: phoneDigits,
+        phoneE164,
+        days: orderedSelectedDays,
+        time: classTimeLabel,
+        value: currencyNumber,
+        valueFormatted: monthlyValue,
+        dueDay: due,
+        dayTimes: orderedSelectedDays.reduce((acc, day) => {
+          if (dayTimes[day]) {
+            acc[day] = dayTimes[day];
+          }
+          return acc;
+        }, {}),
+        notificationsPaymentOptIn,
+        notificationsScheduleOptIn,
+      };
+      if (isEditing) {
+        if (editingClient?.id) {
+          Promise.resolve(updateClient(editingClient.id, newClientData)).catch(() => {});
+        }
+        navigation.goBack();
+        return;
+      }
+
+      if (isFreePlan && clientCount >= clientLimit) {
+        Alert.alert(
+          'Limite atingido',
+          `A versão gratuita permite cadastrar até ${clientLimit} clientes. Conheça o plano pago para liberar cadastros ilimitados.`,
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Ver planos', onPress: () => navigation.navigate('PlanDetails') },
+          ],
+        );
+        return;
+      }
+
+      Promise.resolve(addClient(newClientData)).catch(() => {});
       navigation.goBack();
-      return;
+    } finally {
+      saveLockRef.current = false;
+      setIsSaving(false);
     }
-
-    if (isFreePlan && clientCount >= clientLimit) {
-      Alert.alert(
-        'Limite atingido',
-        `A versão gratuita permite cadastrar até ${clientLimit} clientes. Conheça o plano pago para liberar cadastros ilimitados.`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Ver planos', onPress: () => navigation.navigate('PlanDetails') },
-        ],
-      );
-      return;
-    }
-
-    addClient(newClientData);
-    navigation.goBack();
   };
 
   return (
@@ -386,8 +427,14 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
           <Icon name="x" size={28} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.title}>{isEditing ? `Editar ${term}` : `Novo ${term}`}</Text>
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>{isEditing ? 'Salvar alterações' : 'Salvar'}</Text>
+        <TouchableOpacity
+          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={isSaving}
+        >
+          <Text style={styles.saveButtonText}>
+            {isSaving ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Salvar'}
+          </Text>
         </TouchableOpacity>
       </View>
       <KeyboardAvoidingView
@@ -477,7 +524,7 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
           ) : null}
           <View style={styles.row}>
           <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
-            <Text style={styles.label}>Horário padrão</Text>
+            <Text style={styles.label}>Horário padrão (opcional)</Text>
             <TouchableOpacity
               style={[styles.input, styles.timePickerButton]}
               onPress={openDefaultTimePicker}
@@ -579,6 +626,7 @@ const styles = StyleSheet.create({
   },
   title: { ...TYPOGRAPHY.title, color: COLORS.text },
   saveButton: { backgroundColor: COLORS.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
+  saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
   container: { padding: 20 },
   keyboardWrapper: { flex: 1 },

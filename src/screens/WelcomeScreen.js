@@ -19,7 +19,7 @@ const WelcomeScreen = ({ onContinue }) => {
       <View style={styles.container}>
         <View style={styles.content}>
           <Image 
-            source={require('../assets/images/logo.png')} 
+            source={require('../../assets/logo.png')} 
             style={styles.logo} 
             resizeMode="contain"
           />
@@ -54,9 +54,9 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   logo: {
-    width: 280,
-    height: 120,
-    marginBottom: 40,
+    width: 220,
+    height: 220,
+    marginBottom: 24,
   },
   title: {
     ...TYPOGRAPHY.title,

@@ -8,14 +8,19 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/splashicon.png",
       "resizeMode": "contain",
       "backgroundColor": "#F5F7FA"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.dev.guirocha.wallet-app",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Precisamos acessar a câmera para atualizar sua foto de perfil.",
+        "NSPhotoLibraryUsageDescription": "Precisamos acessar suas fotos para atualizar sua imagem de perfil."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -34,7 +39,17 @@
     "extra": {
       "eas": {
         "projectId": "6d820fd9-826d-4218-9827-50f95ca6b8a8"
-      }
+      },
+      "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBg_B1YooFfq0QBuIQ-BwST_JbmNB4lwW4",
+      "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "wallet-project-45a32.firebaseapp.com",
+      "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "wallet-project-45a32",
+      "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "wallet-project-45a32.firebasestorage.app",
+      "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "220897851038",
+      "EXPO_PUBLIC_FIREBASE_APP_ID": "1:220897851038:ios:64306332dc742b7c92ad8f",
+      "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "18094130092-u26ea5okvsqtaqf0qf392nem1sg20c8i.apps.googleusercontent.com",
+      "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "18094130092-cvcp46ptpfsfsou91drfo5hen5ibgj8q.apps.googleusercontent.com",
+      "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "18094130092-9pbpbj5ct3tehv7gnc4j8dqh95j3t8k7.apps.googleusercontent.com",
+      "EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID": "18094130092-u26ea5okvsqtaqf0qf392nem1sg20c8i.apps.googleusercontent.com"
     }
   }
 }

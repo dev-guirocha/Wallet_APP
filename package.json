@@ -1,10 +1,9 @@
 {
   "dependencies": {
-    "@react-native-community/push-notification-ios": "1.12.0",
+    "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-community/netinfo": "^11.5.2",
-    "@react-native-community/push-notification-ios": "^1.12.0",
     "@react-navigation/bottom-tabs": "^7.4.7",
     "@react-navigation/native": "^7.1.17",
     "@react-navigation/stack": "^7.4.8",
@@ -26,8 +25,6 @@
     "react-native-gesture-handler": "~2.28.0",
     "react-native-get-random-values": "^1.11.0",
     "react-native-image-picker": "^7.2.3",
-    "react-native-push-notification": "^8.1.1",
-    "react-native-config": "^1.5.5",
     "react-native-safe-area-context": "^5.6.1",
     "react-native-screens": "^4.16.0",
     "react-native-svg": "15.12.1",
@@ -38,10 +35,17 @@
     "zustand": "^5.0.10"
   },
   "name": "WalletAPP",
+  "main": "index.js",
   "version": "1.0.0",
   "scripts": {
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "eas-build-post-install": "node scripts/eas-build-post-install.js",
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "smoke:android": "expo export --platform android --output-dir dist/android",
+    "smoke:ios": "expo export --platform ios --output-dir dist/ios",
+    "smoke": "npm run smoke:android && npm run smoke:ios"
   },
   "rnpm": {
     "assets": [
@@ -53,6 +57,9 @@
     "@react-native/metro-config": "latest",
     "@types/react": "~19.1.10",
     "@types/react-native-vector-icons": "^6.4.18",
+    "eas-cli": "^16.32.0",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2"
   }
 }

@@ -1,4 +1,5 @@
 import { Linking, Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { getDocs, orderBy, query, Timestamp, where } from 'firebase/firestore';
 
 import { userReceivablesCollection } from '../utils/firestoreRefs';
@@ -6,72 +7,66 @@ import { endOfDay, startOfDay } from '../utils/dateUtils';
 
 const CHANNEL_ID = 'charges-reminder';
 
-let cachedPushNotification = null;
-let pushNotificationLoadAttempted = false;
+let notificationsConfigured = false;
+let responseSubscription = null;
+let scheduledChargeNotificationIds = [];
 
-const getPushNotification = () => {
-  if (pushNotificationLoadAttempted) return cachedPushNotification;
-  pushNotificationLoadAttempted = true;
+const ensureChannelConfigured = async () => {
+  if (Platform.OS !== 'android') return;
 
   try {
-    const module = require('react-native-push-notification');
-    cachedPushNotification = module.default ?? module;
+    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+      name: 'Cobranças',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+      sound: 'default',
+    });
   } catch (error) {
-    cachedPushNotification = null;
+    // ignore channel setup errors
   }
-
-  return cachedPushNotification;
 };
 
-const withPushNotification = (handler) => {
-  const PushNotification = getPushNotification();
-  if (!PushNotification) return null;
-  return handler(PushNotification);
+const ensureConfigured = async () => {
+  if (!responseSubscription) {
+    responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response?.notification?.request?.content?.data || {};
+      const link = data?.link;
+      if (typeof link === 'string' && link.length > 0) {
+        Linking.openURL(link).catch(() => {});
+      }
+    });
+  }
+
+  if (notificationsConfigured) return;
+  await ensureChannelConfigured();
+  notificationsConfigured = true;
 };
 
 export const configureChargeNotifications = () => {
-  withPushNotification((PushNotification) => {
-    PushNotification.configure({
-      onNotification: (notification) => {
-        const link = notification?.data?.link || notification?.userInfo?.link;
-        if (notification?.userInteraction && link) {
-          Linking.openURL(link).catch(() => {});
-        }
-      },
-      requestPermissions: Platform.OS === 'ios',
-    });
-
-    PushNotification.createChannel(
-      {
-        channelId: CHANNEL_ID,
-        channelName: 'Cobranças',
-        channelDescription: 'Lembretes de cobranças do dia',
-        soundName: 'default',
-        importance: 4,
-        vibrate: true,
-      },
-      () => {}
-    );
-  });
+  void ensureConfigured();
 };
 
-export const cancelChargeNotifications = () => {
-  withPushNotification((PushNotification) => {
-    PushNotification.cancelAllLocalNotifications();
-    if (PushNotification.removeAllDeliveredNotifications) {
-      PushNotification.removeAllDeliveredNotifications();
-    }
-  });
+export const cancelChargeNotifications = async () => {
+  const ids = [...scheduledChargeNotificationIds];
+  scheduledChargeNotificationIds = [];
+
+  if (!ids.length) return;
+
+  await Promise.all(
+    ids.map((id) =>
+      Notifications.cancelScheduledNotificationAsync(id).catch(() => {})
+    )
+  );
 };
 
 const buildDateKey = (date) => date.toISOString().split('T')[0];
 
 export const scheduleChargeNotifications = async ({ uid }) => {
   if (!uid) return;
-  const PushNotification = getPushNotification();
-  if (!PushNotification) return;
 
-  cancelChargeNotifications();
+  await ensureConfigured();
+  await cancelChargeNotifications();
 
   const today = new Date();
   const rangeStart = startOfDay(today);
@@ -95,6 +90,8 @@ export const scheduleChargeNotifications = async ({ uid }) => {
     counts[key] = (counts[key] || 0) + 1;
   });
 
+  const nextScheduledIds = [];
+
   for (let offset = 0; offset < 7; offset += 1) {
     const date = new Date(today);
     date.setDate(today.getDate() + offset);
@@ -105,15 +102,31 @@ export const scheduleChargeNotifications = async ({ uid }) => {
     const fireDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 7, 0, 0, 0);
     if (fireDate.getTime() < Date.now()) continue;
 
-    PushNotification.localNotificationSchedule({
-      channelId: CHANNEL_ID,
-      message: `Você tem ${count} cobranças hoje – toque para cobrar`,
-      date: fireDate,
-      allowWhileIdle: true,
-      data: { link: 'myapp://charges' },
-      userInfo: { link: 'myapp://charges' },
-    });
+    try {
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Cobranças do dia',
+          body: `Você tem ${count} cobranças hoje – toque para cobrar`,
+          data: { link: 'myapp://charges' },
+          sound: 'default',
+        },
+        trigger:
+          Platform.OS === 'android'
+            ? {
+                type: Notifications.SchedulableTriggerInputTypes.DATE,
+                date: fireDate,
+                channelId: CHANNEL_ID,
+              }
+            : fireDate,
+      });
+
+      nextScheduledIds.push(notificationId);
+    } catch (error) {
+      // ignore notification scheduling errors
+    }
   }
+
+  scheduledChargeNotificationIds = nextScheduledIds;
 };
 
 export default {

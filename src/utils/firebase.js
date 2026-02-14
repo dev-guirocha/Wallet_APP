@@ -1,51 +1,65 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, initializeAuth, getReactNativePersistence } from '@firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Config from 'react-native-config';
+import { readEnv } from './env';
 
 const firebaseConfig = {
   apiKey:
-    Config.EXPO_PUBLIC_FIREBASE_API_KEY ||
-    Config.FIREBASE_API_KEY,
+    readEnv('EXPO_PUBLIC_FIREBASE_API_KEY', 'FIREBASE_API_KEY'),
   authDomain:
-    Config.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ||
-    Config.FIREBASE_AUTH_DOMAIN,
+    readEnv('EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN', 'FIREBASE_AUTH_DOMAIN'),
   projectId:
-    Config.EXPO_PUBLIC_FIREBASE_PROJECT_ID ||
-    Config.FIREBASE_PROJECT_ID,
+    readEnv('EXPO_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_PROJECT_ID'),
   storageBucket:
-    Config.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ||
-    Config.FIREBASE_STORAGE_BUCKET,
+    readEnv('EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET', 'FIREBASE_STORAGE_BUCKET'),
   messagingSenderId:
-    Config.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ||
-    Config.FIREBASE_MESSAGING_SENDER_ID,
+    readEnv('EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID', 'FIREBASE_MESSAGING_SENDER_ID'),
   appId:
-    Config.EXPO_PUBLIC_FIREBASE_APP_ID ||
-    Config.FIREBASE_APP_ID,
+    readEnv('EXPO_PUBLIC_FIREBASE_APP_ID', 'FIREBASE_APP_ID'),
   measurementId:
-    Config.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID ||
-    Config.FIREBASE_MEASUREMENT_ID,
+    readEnv('EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID', 'FIREBASE_MEASUREMENT_ID'),
 };
 
-export const isFirebaseConfigured = Boolean(
+const hasRequiredFirebaseConfig = Boolean(
   firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId,
 );
 
-const hasApps = getApps().length > 0;
-const app = hasApps ? getApps()[0] : initializeApp(firebaseConfig);
+let firebaseInitError = null;
+let app = null;
+let auth = null;
+let db = null;
+let storage = null;
 
-let auth;
-if (hasApps) {
-  auth = getAuth(app);
-} else {
-  auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
+if (hasRequiredFirebaseConfig) {
+  try {
+    const hasApps = getApps().length > 0;
+    app = hasApps ? getApps()[0] : initializeApp(firebaseConfig);
+
+    if (hasApps) {
+      auth = getAuth(app);
+    } else {
+      auth = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
+    }
+
+    try {
+      db = initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+        useFetchStreams: false,
+      });
+    } catch (firestoreInitError) {
+      db = getFirestore(app);
+    }
+    storage = getStorage(app);
+  } catch (error) {
+    firebaseInitError = error;
+  }
 }
 
-const db = getFirestore(app);
-const storage = getStorage(app);
-
-export { auth, db, storage };
+export const isFirebaseConfigured = Boolean(
+  hasRequiredFirebaseConfig && !firebaseInitError && app && auth && db && storage,
+);
+export { app, auth, db, storage, firebaseInitError };

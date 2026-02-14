@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Swiper from 'react-native-swiper';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather } from '@expo/vector-icons';
 import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
 import { useClientStore } from '../store/useClientStore';
 import {
@@ -132,14 +132,14 @@ const OnboardingScreen = ({
       >
         {onboardingData.map((item, index) => (
           <View key={`${item.title}-${index}`} style={styles.slide}>
-            <Icon name={item.iconName} size={96} color={COLORS.primary} style={styles.icon} />
+            <Feather name={item.iconName} size={96} color={COLORS.primary} style={styles.icon} />
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.description}>{item.description}</Text>
 
             {item.type === 'notifications' ? (
               <View style={styles.permissionCard}>
                 <View style={styles.permissionHeader}>
-                  <Icon name="bell" size={24} color={COLORS.text} />
+                  <Feather name="bell" size={24} color={COLORS.text} />
                   <View style={styles.permissionTextBlock}>
                     <Text style={styles.permissionTitle}>Receber lembretes</Text>
                     <Text style={styles.permissionSubtitle}>
@@ -149,7 +149,7 @@ const OnboardingScreen = ({
                 </View>
                 {localNotificationsEnabled ? (
                   <View style={styles.permissionStatus}>
-                    <Icon name="check" size={16} color={COLORS.primary} />
+                    <Feather name="check" size={16} color={COLORS.primary} />
                     <Text style={styles.permissionStatusText}>Notificacoes ativadas</Text>
                   </View>
                 ) : (

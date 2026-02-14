@@ -95,6 +95,14 @@ const resolveReceivableDueDate = (receivable) => {
   return fromKey instanceof Date && !Number.isNaN(fromKey.getTime()) ? fromKey : null;
 };
 
+const formatDueDateShortLabel = (value) => {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return 'Vencimento não definido';
+  return value.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+  });
+};
+
 const HomeScreen = ({ navigation }) => {
   const clients = useClientStore((state) => state.clients);
   const userName = useClientStore((state) => state.userName);
@@ -633,8 +641,18 @@ const HomeScreen = ({ navigation }) => {
     }
 
     if (!currentUserId) return;
+    const dueDate = payment.dueDate;
+    if (!(dueDate instanceof Date) || Number.isNaN(dueDate.getTime())) {
+      Alert.alert('Cobrança', 'Defina o vencimento do cliente para enviar cobrança.', [
+        { text: 'Agora não', style: 'cancel' },
+        {
+          text: 'Editar cliente',
+          onPress: () => navigation.navigate('AddClient', { clientId: payment.clientId }),
+        },
+      ]);
+      return;
+    }
     const template = templates?.chargeMsg?.trim() || DEFAULT_CHARGE_TEMPLATE;
-    const dueDate = payment.dueDate || new Date();
     const message = applyTemplateVariables(template, {
       nome: payment.name,
       dd: String(dueDate.getDate()).padStart(2, '0'),
@@ -902,12 +920,10 @@ const HomeScreen = ({ navigation }) => {
                     {item.name}
                   </Text>
                 <Text style={styles.paymentDate}>
-                  Vence{' '}
-                  {(item.dueDate || new Date()).toLocaleDateString('pt-BR', {
-                    day: '2-digit',
-                    month: 'short',
-                  })}
-                  </Text>
+                  {item.dueDate
+                    ? `Vence ${formatDueDateShortLabel(item.dueDate)}`
+                    : 'Vencimento não definido'}
+                </Text>
                   <TouchableOpacity
                     style={[
                       styles.chargeButton,
@@ -1006,7 +1022,11 @@ const HomeScreen = ({ navigation }) => {
                   <Text style={styles.modalSubtitle}>
                     Vence em {selectedPayment.dueDate.toLocaleDateString('pt-BR')}
                   </Text>
-                ) : null}
+                ) : (
+                  <Text style={[styles.modalSubtitle, styles.modalSubtitleWarning]}>
+                    Vencimento não definido
+                  </Text>
+                )}
 
                 <TouchableOpacity
                   style={styles.modalButtonPrimary}
@@ -1017,14 +1037,36 @@ const HomeScreen = ({ navigation }) => {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.modalButtonWarning}
+                  style={[
+                    styles.modalButtonWarning,
+                    !selectedPayment?.dueDate && styles.modalButtonDisabled,
+                  ]}
                   onPress={() => handleChargeReceivable(selectedPayment)}
+                  disabled={!selectedPayment?.dueDate}
                 >
                   <Icon name="message-circle" size={20} color={COLORS.warning} />
                   <Text style={[styles.modalButtonText, { color: COLORS.warning }]}>
                     Cobrar via WhatsApp
                   </Text>
                 </TouchableOpacity>
+
+                {!selectedPayment?.dueDate ? (
+                  <TouchableOpacity
+                    style={styles.modalButtonSecondary}
+                    onPress={() => {
+                      const clientId = selectedPayment?.clientId;
+                      setSelectedPayment(null);
+                      if (clientId) {
+                        navigation.navigate('AddClient', { clientId });
+                      }
+                    }}
+                  >
+                    <Icon name="edit-2" size={20} color={COLORS.primary} />
+                    <Text style={[styles.modalButtonText, { color: COLORS.primary }]}>
+                      Definir vencimento
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
 
                 <TouchableOpacity
                   style={styles.modalButtonSecondary}
@@ -1286,6 +1328,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { ...TYPOGRAPHY.title, color: COLORS.textPrimary, marginBottom: 8 },
   modalSubtitle: { ...TYPOGRAPHY.body, color: COLORS.textSecondary, marginBottom: 24 },
+  modalSubtitleWarning: { color: COLORS.warning },
   modalButtonPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1306,6 +1349,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 12,
   },
+  modalButtonDisabled: { opacity: 0.5 },
   modalButtonSecondary: {
     flexDirection: 'row',
     alignItems: 'center',

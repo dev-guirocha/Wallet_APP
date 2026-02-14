@@ -3,7 +3,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import { Ionicons } from '@expo/vector-icons';
 import ClientDetailScreen from './src/screens/ClientDetailScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import AgendaScreen from './src/screens/AgendaScreen';
@@ -18,6 +18,7 @@ import EditProfileScreen from './src/screens/EditProfileScreen';
 import ChangePhotoScreen from './src/screens/ChangePhotoScreen';
 import PrivacyScreen from './src/screens/PrivacyScreen';
 import ChargesTodayScreen from './src/screens/ChargesTodayScreen';
+import MessageTemplatesScreen from './src/screens/MessageTemplatesScreen';
 import { COLORS, TYPOGRAPHY } from './src/constants/theme';
 
 const Tab = createBottomTabNavigator();
@@ -113,6 +114,9 @@ const AppNavigator = ({ onSignOut }) => {
       </Stack.Screen>
       <Stack.Screen name="Privacidade">
         {props => <PrivacyScreen {...props} />}
+      </Stack.Screen>
+      <Stack.Screen name="Preferências de mensagens">
+        {props => <MessageTemplatesScreen {...props} />}
       </Stack.Screen>
       <Stack.Screen name="CobrancasHoje">
         {props => <ChargesTodayScreen {...props} />}

@@ -11,9 +11,10 @@ import {
   Platform,
   ToastAndroid,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Feather';
+import { Feather as Icon } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useClientStore } from '../store/useClientStore';
 import {
@@ -46,6 +47,7 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
   const notificationsEnabled = useClientStore((state) => state.notificationsEnabled);
   const setNotificationsEnabled = useClientStore((state) => state.setNotificationsEnabled);
   const userName = useClientStore((state) => state.userName);
+  const userPhotoURL = useClientStore((state) => state.userPhotoURL);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [canAskNotifications, setCanAskNotifications] = useState(true);
   const renderPlanLabel = () => {
@@ -122,7 +124,11 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
         </View>
         <View style={styles.header}>
           <View style={styles.avatarWrapper}>
-            <Icon name="user" size={32} color={COLORS.text} />
+            {userPhotoURL ? (
+              <Image source={{ uri: userPhotoURL }} style={styles.avatarImage} />
+            ) : (
+              <Icon name="user" size={32} color={COLORS.text} />
+            )}
           </View>
           <View style={styles.headerTextBlock}>
             <Text style={styles.profileName}>
@@ -203,6 +209,13 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
             <Text style={styles.menuItemText}>Preferências de privacidade</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation?.navigate('Preferências de mensagens')}
+          >
+            <Icon name="message-square" size={18} color={COLORS.text} />
+            <Text style={styles.menuItemText}>Preferências de mensagens</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.menuItem, styles.menuItemLast]}
             onPress={() => navigation?.navigate('CobrancasHoje')}
           >
@@ -253,7 +266,9 @@ const styles = StyleSheet.create({
     marginRight: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
+    overflow: 'hidden',
   },
+  avatarImage: { width: '100%', height: '100%' },
   headerTextBlock: { flex: 1 },
   profileName: { ...TYPOGRAPHY.title, color: COLORS.text },
   profileSubtitle: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginTop: 4 },

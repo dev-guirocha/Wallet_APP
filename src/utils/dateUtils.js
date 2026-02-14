@@ -6,7 +6,14 @@ export const getMonthKey = (date = new Date()) => {
   return `${year}-${month}`;
 };
 
-export const getDateKey = (date = new Date()) => date.toISOString().split('T')[0];
+export const getDateKey = (date = new Date()) => {
+  const base = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(base.getTime())) return '';
+  const year = base.getFullYear();
+  const month = String(base.getMonth() + 1).padStart(2, '0');
+  const day = String(base.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export const parseDateKeyToDate = (dateKey) => {
   if (!dateKey) return null;
