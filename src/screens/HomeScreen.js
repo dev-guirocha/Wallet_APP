@@ -1,33 +1,33 @@
 // /src/screens/HomeScreen.js
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
-  ScrollView,
   Modal,
   TouchableWithoutFeedback,
   Alert,
   Platform,
   ToastAndroid,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import { onSnapshot, orderBy, query, Timestamp, where } from 'firebase/firestore';
 
 import {
   endOfDay,
-  formatCurrency,
   formatDateLabel,
   formatTimeLabelFromDate,
   getDateKey,
   getMonthKey,
   parseDateKeyToDate,
   parseTimeLabelParts,
+  startOfDay,
+  toDate,
 } from '../utils/dateUtils';
+import { getChargeMessage } from '../utils/chargeMessageBuilder';
 import { getAppointmentsForDate } from '../utils/schedule';
 import { useClientStore } from '../store/useClientStore';
 import { auth } from '../utils/firebase';
@@ -35,10 +35,12 @@ import { generateAndShareReceipt } from '../utils/receiptGenerator';
 import { userReceivablesCollection } from '../utils/firestoreRefs';
 import {
   createAppointmentOverride,
+  markReceivableAsUnpaid,
   rescheduleAppointment,
   updateUserPrivacy,
   markReceivableAsPaid,
   markReceivablesPaidByIds,
+  markReceivablesUnpaidByIds,
   registerReceivableChargeSent,
 } from '../utils/firestoreService';
 import {
@@ -46,8 +48,27 @@ import {
   buildPhoneE164FromRaw,
   openWhatsAppWithMessage,
 } from '../utils/whatsapp';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme/legacy';
 import RescheduleModal from '../components/RescheduleModal';
+import {
+  ActionSheet,
+  ActivityFeedCard,
+  AppScreen,
+  Card,
+  DailyPlanCard,
+  EmptyState,
+  Fab,
+  MoneyText,
+  SnackbarUndo,
+  SectionHeader,
+  StatusPill,
+  SwipeCarousel,
+} from '../components';
+import { runGuardedAction } from '../utils/actionGuard';
+import { formatBRL } from '../utils/money';
+import { getDailyTasks, getTasksProgress } from '../utils/dailyTasks';
+import { normalizeEvents } from '../utils/timelineEvents';
+import { appointmentToPillStatus } from '../utils/statusMapping';
 
 const getGreetingLabel = () => {
   const hour = new Date().getHours();
@@ -95,16 +116,9 @@ const resolveReceivableDueDate = (receivable) => {
   return fromKey instanceof Date && !Number.isNaN(fromKey.getTime()) ? fromKey : null;
 };
 
-const formatDueDateShortLabel = (value) => {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return 'Vencimento não definido';
-  return value.toLocaleDateString('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-  });
-};
-
 const HomeScreen = ({ navigation }) => {
   const clients = useClientStore((state) => state.clients);
+  const expenses = useClientStore((state) => state.expenses);
   const userName = useClientStore((state) => state.userName);
   const currentUserId = useClientStore((state) => state.currentUserId);
   const privacyHideBalances = useClientStore((state) => state.privacyHideBalances);
@@ -117,11 +131,17 @@ const HomeScreen = ({ navigation }) => {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [receivables, setReceivables] = useState([]);
   const [receivablesLoading, setReceivablesLoading] = useState(false);
-  const [receivablesError, setReceivablesError] = useState('');
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [rescheduleVisible, setRescheduleVisible] = useState(false);
   const [rescheduleTarget, setRescheduleTarget] = useState(null);
   const [payingReceivableIds, setPayingReceivableIds] = useState([]);
+  const [completedTaskIds, setCompletedTaskIds] = useState([]);
+  const [runningTaskIds, setRunningTaskIds] = useState([]);
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [undoVisible, setUndoVisible] = useState(false);
+  const [undoMessage, setUndoMessage] = useState('');
+  const dailyProgressAnim = useRef(new Animated.Value(0)).current;
+  const undoActionRef = useRef(null);
   const resolveActiveUid = () => currentUserId || auth?.currentUser?.uid || null;
 
   const getLocalDateKey = (value) => {
@@ -129,42 +149,14 @@ const HomeScreen = ({ navigation }) => {
     return getDateKey(new Date(base.getFullYear(), base.getMonth(), base.getDate(), 12, 0, 0));
   };
 
-  const monthLabel = useMemo(() => {
-    const month = new Date().toLocaleDateString('pt-BR', { month: 'long' });
-    return month.charAt(0).toUpperCase() + month.slice(1);
-  }, []);
-
-  const financialData = useMemo(() => {
-    const currentMonthKey = new Date().toISOString().slice(0, 7);
-    const totalToReceive = clients.reduce((sum, client) => sum + Number(client.value || 0), 0);
-
-    const received = clients.reduce((sum, client) => {
-      const payment = client.payments?.[currentMonthKey];
-      const isPaid = typeof payment === 'object' ? payment?.status === 'paid' : payment === 'pago';
-      return isPaid ? sum + Number(client.value || 0) : sum;
-    }, 0);
-
-    const pending = totalToReceive - received;
-    const progress = totalToReceive > 0 ? (received / totalToReceive) * 100 : 0;
-
-    return {
-      total: totalToReceive,
-      received,
-      pending,
-      progress: `${progress}%`,
-    };
-  }, [clients]);
-
   useEffect(() => {
     if (!currentUserId) {
       setReceivables([]);
       setReceivablesLoading(false);
-      setReceivablesError('');
       return;
     }
 
     setReceivablesLoading(true);
-    setReceivablesError('');
 
     const receivablesQuery = query(
       userReceivablesCollection(currentUserId),
@@ -181,18 +173,16 @@ const HomeScreen = ({ navigation }) => {
       },
       () => {
         setReceivablesLoading(false);
-        setReceivablesError('Não foi possível carregar recebíveis.');
       }
     );
 
     return () => unsubscribe();
   }, [currentUserId]);
 
-  const upcomingPayments = useMemo(() => {
+  const receivableEntries = useMemo(() => {
     const now = new Date();
     const todayKey = getDateKey(now);
     const currentMonthKey = getMonthKey(now);
-    const endOfCurrentMonth = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     const clientsMap = new Map(clients.map((client) => [client.id, client]));
     const monthEntries = new Set();
 
@@ -268,20 +258,142 @@ const HomeScreen = ({ navigation }) => {
       })
       .filter(Boolean);
 
-    return [...fromReceivables, ...fromClientsFallback]
-      .filter((item) => item.dueDate && item.dueDate.getTime() <= endOfCurrentMonth.getTime())
-      .sort((a, b) => {
-        if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
-        return a.dueDate - b.dueDate;
-      })
-      .slice(0, 10);
+    return [...fromReceivables, ...fromClientsFallback].sort((a, b) => {
+      if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+      const left = a.dueDate instanceof Date ? a.dueDate.getTime() : Number.MAX_SAFE_INTEGER;
+      const right = b.dueDate instanceof Date ? b.dueDate.getTime() : Number.MAX_SAFE_INTEGER;
+      return left - right;
+    });
   }, [clients, receivables]);
+
+  const homeKpis = useMemo(() => {
+    const todayStart = startOfDay(new Date());
+    const todayEnd = endOfDay(todayStart);
+    const weekEnd = endOfDay(new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + 6));
+
+    const isBetween = (value, from, to) =>
+      value instanceof Date && value.getTime() >= from.getTime() && value.getTime() <= to.getTime();
+
+    const receivedToday = clients.reduce((sum, client) => {
+      const payments = client?.payments;
+      if (!payments || typeof payments !== 'object') return sum;
+
+      const paidToday = Object.values(payments).reduce((clientSum, payment) => {
+        const paymentStatus = typeof payment === 'object' ? payment?.status : payment;
+        if (paymentStatus !== 'paid' && paymentStatus !== 'pago') return clientSum;
+
+        const paymentDate = toDate(
+          (typeof payment === 'object' && payment?.date) ||
+            (typeof payment === 'object' && payment?.paidAt) ||
+            (typeof payment === 'object' && payment?.updatedAt)
+        );
+        if (!isBetween(paymentDate, todayStart, todayEnd)) return clientSum;
+
+        const paymentValue = Number(
+          (typeof payment === 'object' ? payment?.value : null) ?? client?.value ?? 0
+        );
+        return clientSum + (Number.isFinite(paymentValue) ? paymentValue : 0);
+      }, 0);
+
+      return sum + paidToday;
+    }, 0);
+
+    const receivables7Days = receivableEntries.reduce((sum, item) => {
+      if (!isBetween(item.dueDate, todayStart, weekEnd)) return sum;
+      return sum + Number(item.amount || 0);
+    }, 0);
+
+    const overdueReceivablesCount = receivableEntries.reduce((sum, item) => {
+      if (!(item.dueDate instanceof Date)) return sum;
+      return item.dueDate.getTime() < todayStart.getTime() ? sum + 1 : sum;
+    }, 0);
+
+    const dueTodayReceivablesCount = receivableEntries.reduce((sum, item) => {
+      return isBetween(item.dueDate, todayStart, todayEnd) ? sum + 1 : sum;
+    }, 0);
+
+    const expensesDueToday = expenses.reduce((sum, expense) => {
+      const expenseDate = toDate(expense?.date || expense?.createdAt || expense?.updatedAt);
+      if (!isBetween(expenseDate, todayStart, todayEnd)) return sum;
+      return sum + Number(expense?.value || 0);
+    }, 0);
+
+    const expenses7Days = expenses.reduce((sum, expense) => {
+      const expenseDate = toDate(expense?.date || expense?.createdAt || expense?.updatedAt);
+      if (!isBetween(expenseDate, todayStart, weekEnd)) return sum;
+      return sum + Number(expense?.value || 0);
+    }, 0);
+
+    return {
+      balanceToday: receivedToday - expensesDueToday,
+      receivables7Days,
+      expenses7Days,
+      overdueReceivablesCount,
+      dueTodayReceivablesCount,
+    };
+  }, [clients, expenses, receivableEntries]);
+
+  const todayDateKey = getDateKey(new Date());
+  const todayReferenceDate = useMemo(
+    () => parseDateKeyToDate(todayDateKey) || new Date(),
+    [todayDateKey]
+  );
 
   const todayAppointments = useMemo(() => {
     const today = new Date();
     const appointments = getAppointmentsForDate({ date: today, clients, overrides: scheduleOverrides });
     return dedupeAppointments(appointments);
   }, [clients, scheduleOverrides]);
+  const dailyTasks = useMemo(() => {
+    return getDailyTasks({
+      receivables: receivableEntries,
+      appointments: todayAppointments,
+      today: todayReferenceDate,
+    });
+  }, [receivableEntries, todayAppointments, todayReferenceDate]);
+
+  useEffect(() => {
+    const taskIds = new Set(dailyTasks.map((task) => task.id));
+    setCompletedTaskIds((previous) => previous.filter((id) => taskIds.has(id)));
+    setRunningTaskIds((previous) => previous.filter((id) => taskIds.has(id)));
+  }, [dailyTasks]);
+
+  const tasksProgress = useMemo(
+    () => getTasksProgress(dailyTasks, completedTaskIds),
+    [completedTaskIds, dailyTasks]
+  );
+
+  useEffect(() => {
+    Animated.timing(dailyProgressAnim, {
+      toValue: tasksProgress.percent,
+      duration: 260,
+      useNativeDriver: false,
+    }).start();
+  }, [dailyProgressAnim, tasksProgress.percent]);
+
+  const openUndo = useCallback((message, handler) => {
+    undoActionRef.current = handler;
+    setUndoMessage(message);
+    setUndoVisible(true);
+  }, []);
+
+  const closeUndo = useCallback(() => {
+    undoActionRef.current = null;
+    setUndoVisible(false);
+    setUndoMessage('');
+  }, []);
+
+  const handleUndo = useCallback(async () => {
+    const handler = undoActionRef.current;
+    closeUndo();
+    if (typeof handler === 'function') {
+      try {
+        await handler();
+      } catch (_error) {
+        Alert.alert('Desfazer', 'Não foi possível desfazer a última ação.');
+      }
+    }
+  }, [closeUndo]);
 
   const handleTogglePaymentFromMenu = async () => {
     if (!selectedPayment || !currentUserId) {
@@ -356,7 +468,7 @@ const HomeScreen = ({ navigation }) => {
               startAt: Timestamp.fromDate(appointmentDate),
             },
           });
-        } catch (error) {
+        } catch (_error) {
           // ignore backfill errors
         }
         Alert.alert('Confirmação', 'Você já confirmou este compromisso hoje.');
@@ -391,7 +503,7 @@ const HomeScreen = ({ navigation }) => {
           confirmationSentAt: Timestamp.fromDate(new Date()),
         },
       });
-    } catch (error) {
+    } catch (_error) {
       // ignore confirmation tracking errors
     }
   };
@@ -419,7 +531,7 @@ const HomeScreen = ({ navigation }) => {
           startAt: Timestamp.fromDate(appointmentDate),
         },
       });
-    } catch (error) {
+    } catch (_error) {
       Alert.alert('Agenda', 'Não foi possível concluir o compromisso.');
     }
   };
@@ -449,7 +561,7 @@ const HomeScreen = ({ navigation }) => {
           startAt: Timestamp.fromDate(appointmentDate),
         },
       });
-    } catch (error) {
+    } catch (_error) {
       Alert.alert('Agenda', 'Não foi possível atualizar a confirmação do compromisso.');
     }
   };
@@ -459,13 +571,13 @@ const HomeScreen = ({ navigation }) => {
     setRescheduleVisible(true);
   };
 
-  const handleOpenAppointmentMenu = (appointment) => {
+  const handleOpenAppointmentMenu = useCallback((appointment) => {
     setSelectedAppointment(appointment);
-  };
+  }, []);
 
-  const handleCloseAppointmentMenu = () => {
+  const handleCloseAppointmentMenu = useCallback(() => {
     setSelectedAppointment(null);
-  };
+  }, []);
 
   const handleConfirmFromMenu = async () => {
     if (!selectedAppointment) return;
@@ -623,7 +735,7 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const handleChargeReceivable = async (payment) => {
-    if (!payment) return;
+    if (!payment) return false;
 
     const last = payment.receivable?.lastChargeSentAt;
     if (last) {
@@ -636,11 +748,11 @@ const HomeScreen = ({ navigation }) => {
         lastDate.getFullYear() === hoje.getFullYear()
       ) {
         Alert.alert('Cobrança', 'Você já enviou cobrança para este cliente hoje.');
-        return;
+        return false;
       }
     }
 
-    if (!currentUserId) return;
+    if (!currentUserId) return false;
     const dueDate = payment.dueDate;
     if (!(dueDate instanceof Date) || Number.isNaN(dueDate.getTime())) {
       Alert.alert('Cobrança', 'Defina o vencimento do cliente para enviar cobrança.', [
@@ -650,60 +762,54 @@ const HomeScreen = ({ navigation }) => {
           onPress: () => navigation.navigate('AddClient', { clientId: payment.clientId }),
         },
       ]);
-      return;
+      return false;
     }
     const template = templates?.chargeMsg?.trim() || DEFAULT_CHARGE_TEMPLATE;
-    const message = applyTemplateVariables(template, {
-      nome: payment.name,
-      dd: String(dueDate.getDate()).padStart(2, '0'),
-      mm: String(dueDate.getMonth() + 1).padStart(2, '0'),
-      data: formatDateLabel(dueDate),
+    const dueEnd = endOfDay(dueDate);
+    const daysLate = Math.max(0, Math.floor((Date.now() - dueEnd.getTime()) / 86400000));
+    const message = getChargeMessage(payment, daysLate);
+    const actionKey = `home-charge:${payment.id}`;
+    const { blocked, value } = await runGuardedAction(actionKey, async () => {
+      const opened = await openWhatsAppWithMessage({ phoneE164: payment.phoneE164, message });
+      if (!opened) return false;
+
+      try {
+        const fallbackReceivable = {
+          clientId: payment.clientId,
+          clientName: payment.name,
+          amount: Number(payment.amount ?? 0),
+          dueDate,
+          monthKey: payment.receivable?.monthKey || getMonthKey(dueDate),
+          paid: false,
+        };
+        await registerReceivableChargeSent({
+          uid: currentUserId,
+          receivableId: payment.id,
+          usedTemplate: template,
+          fallbackReceivable,
+        });
+        const sentAt = Timestamp.fromDate(new Date());
+        setReceivables((prev) =>
+          prev.map((item) => {
+            if (item.id !== payment.id) return item;
+            const history = Array.isArray(item.chargeHistory) ? item.chargeHistory : [];
+            return {
+              ...item,
+              lastChargeSentAt: sentAt,
+              chargeHistory: [
+                ...history,
+                { at: sentAt, channel: 'whatsapp', template },
+              ],
+            };
+          })
+        );
+      } catch (_error) {
+        Alert.alert('Cobrança', 'Não foi possível enviar cobrança agora.');
+      }
+      return true;
     });
-
-    const opened = await openWhatsAppWithMessage({ phoneE164: payment.phoneE164, message });
-    if (!opened) return;
-
-    try {
-      const fallbackReceivable = {
-        clientId: payment.clientId,
-        clientName: payment.name,
-        amount: Number(payment.amount ?? 0),
-        dueDate,
-        monthKey: payment.receivable?.monthKey || getMonthKey(dueDate),
-        paid: false,
-      };
-      await registerReceivableChargeSent({
-        uid: currentUserId,
-        receivableId: payment.id,
-        usedTemplate: template,
-        fallbackReceivable,
-      });
-      const sentAt = Timestamp.fromDate(new Date());
-      setReceivables((prev) =>
-        prev.map((item) => {
-          if (item.id !== payment.id) return item;
-          const history = Array.isArray(item.chargeHistory) ? item.chargeHistory : [];
-          return {
-            ...item,
-            lastChargeSentAt: sentAt,
-            chargeHistory: [
-              ...history,
-              { at: sentAt, channel: 'whatsapp', template },
-            ],
-          };
-        })
-      );
-    } catch (error) {
-      // ignore
-    }
-  };
-
-  const confirmMarkReceivablePaid = (payment) => {
-    if (!payment) return;
-    Alert.alert('Pago?', `Confirmar baixa para ${payment.name}?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Confirmar', onPress: () => handleMarkReceivablePaid(payment) },
-    ]);
+    if (blocked) return false;
+    return Boolean(value);
   };
 
   const notifyPaymentSuccess = () => {
@@ -727,91 +833,165 @@ const HomeScreen = ({ navigation }) => {
       return;
     }
 
-    if (payingReceivableIds.includes(payment.id)) return;
-    setPayingReceivableIds((prev) => [...prev, payment.id]);
+    const actionKey = `home-pay:${payment.id}`;
+    const { blocked } = await runGuardedAction(actionKey, async () => {
+      if (payingReceivableIds.includes(payment.id)) return;
+      setPayingReceivableIds((prev) => [...prev, payment.id]);
 
-    try {
-      const monthKey = getMonthKey(payment.dueDate);
-      const duplicateIds = receivables
-        .filter((item) => {
+      try {
+        const monthKey = getMonthKey(payment.dueDate);
+        const duplicateIds = receivables
+          .filter((item) => {
+            if (item.clientId !== payment.clientId) return false;
+            const itemDueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
+            const itemMonthKey =
+              item.monthKey || (item.dueDateKey ? String(item.dueDateKey).slice(0, 7) : itemDueDate ? getMonthKey(itemDueDate) : '');
+            if (!itemMonthKey) return false;
+            return itemMonthKey === monthKey;
+          })
+          .map((item) => item.id);
+
+        const removedItems = receivables.filter((item) => {
           if (item.clientId !== payment.clientId) return false;
           const itemDueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
-          const itemMonthKey =
-            item.monthKey || (item.dueDateKey ? String(item.dueDateKey).slice(0, 7) : itemDueDate ? getMonthKey(itemDueDate) : '');
-          if (!itemMonthKey) return false;
-          return itemMonthKey === monthKey;
-        })
-        .map((item) => item.id);
+          if (!itemDueDate) return item.id === payment.id;
+          return getMonthKey(itemDueDate) === monthKey;
+        });
 
-      await markReceivableAsPaid({
-        uid: currentUserId,
-        receivableId: payment.id,
-        method: 'manual',
-        fallbackReceivable: {
+        await markReceivableAsPaid({
+          uid: currentUserId,
+          receivableId: payment.id,
+          method: 'manual',
+          fallbackReceivable: {
+            clientId: payment.clientId,
+            clientName: payment.name,
+            amount: Number(payment.amount ?? 0),
+            dueDate: payment.dueDate,
+            monthKey,
+            paid: true,
+          },
+        });
+
+        setClientPaymentStatus({
           clientId: payment.clientId,
-          clientName: payment.name,
-          amount: Number(payment.amount ?? 0),
-          dueDate: payment.dueDate,
           monthKey,
           paid: true,
-        },
-      });
-
-      setClientPaymentStatus({
-        clientId: payment.clientId,
-        monthKey,
-        paid: true,
-        amount: payment.amount,
-      });
-
-      if (duplicateIds.length > 0) {
-        await markReceivablesPaidByIds({
-          uid: currentUserId,
-          receivableIds: duplicateIds,
+          amount: payment.amount,
         });
-      }
 
-      setReceivables((prev) =>
-        prev.filter((item) => {
-          if (item.clientId !== payment.clientId) return true;
-          const itemDueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
-          if (!itemDueDate) return item.id !== payment.id;
-          return getMonthKey(itemDueDate) !== monthKey;
-        })
-      );
-      notifyPaymentSuccess();
-    } catch (error) {
-      Alert.alert('Pagamento', 'Não foi possível atualizar o recebimento.');
+        if (duplicateIds.length > 0) {
+          await markReceivablesPaidByIds({
+            uid: currentUserId,
+            receivableIds: duplicateIds,
+          });
+        }
+
+        setReceivables((prev) =>
+          prev.filter((item) => {
+            if (item.clientId !== payment.clientId) return true;
+            const itemDueDate = item.dueDate?.toDate?.() || (item.dueDate ? new Date(item.dueDate) : null);
+            if (!itemDueDate) return item.id !== payment.id;
+            return getMonthKey(itemDueDate) !== monthKey;
+          })
+        );
+        notifyPaymentSuccess();
+        openUndo('Pagamento registrado. Deseja desfazer?', async () => {
+          await markReceivableAsUnpaid({ uid: currentUserId, receivableId: payment.id });
+          if (duplicateIds.length > 0) {
+            await markReceivablesUnpaidByIds({ uid: currentUserId, receivableIds: duplicateIds });
+          }
+          setClientPaymentStatus({
+            clientId: payment.clientId,
+            monthKey,
+            paid: false,
+            amount: payment.amount,
+          });
+          setReceivables((prev) => {
+            const ids = new Set(prev.map((entry) => entry.id));
+            const restored = removedItems.filter((entry) => !ids.has(entry.id));
+            return [...prev, ...restored];
+          });
+        });
+      } catch (_error) {
+        Alert.alert('Pagamento', 'Não foi possível atualizar o recebimento.');
+      } finally {
+        setPayingReceivableIds((prev) => prev.filter((id) => id !== payment.id));
+        setSelectedPayment(null);
+      }
+    });
+    if (blocked) return;
+  };
+
+  const handleRunDailyTask = async (task) => {
+    if (!task?.id || runningTaskIds.includes(task.id)) return;
+
+    setCompletedTaskIds((previous) => (
+      previous.includes(task.id) ? previous : [...previous, task.id]
+    ));
+    setRunningTaskIds((previous) => [...previous, task.id]);
+
+    try {
+      if (task.type === 'OVERDUE_CHARGE' || task.type === 'TODAY_CHARGE') {
+        const target = task.payload;
+        if (target) {
+          await handleChargeReceivable(target);
+        } else {
+          navigation.navigate('Cobrancas', {
+            initialFilter: task.type === 'OVERDUE_CHARGE' ? 'OVERDUE' : 'DUE_TODAY',
+          });
+        }
+      } else if (task.type === 'CONFIRM_APPOINTMENT') {
+        if (task.payload) {
+          await handleConfirmAppointment(task.payload);
+        }
+      } else if (task.type === 'TODAY_APPOINTMENT') {
+        if (task.payload) {
+          await handleCompleteAppointment(task.payload);
+        } else {
+          navigation.navigate('Agenda');
+        }
+      } else {
+        navigation.navigate('Agenda');
+      }
+    } catch (_error) {
+      setCompletedTaskIds((previous) => previous.filter((id) => id !== task.id));
+      Alert.alert('Plano de hoje', 'Não foi possível concluir essa tarefa agora.');
     } finally {
-      setPayingReceivableIds((prev) => prev.filter((id) => id !== payment.id));
-      setSelectedPayment(null);
+      setRunningTaskIds((previous) => previous.filter((id) => id !== task.id));
     }
   };
-  const handleToggleHideBalances = async () => {
+
+  const handleToggleHideBalances = useCallback(async () => {
     const previousValue = privacyHideBalances;
     const nextValue = !previousValue;
     setPrivacyHideBalances(nextValue);
     if (!currentUserId) return;
     try {
       await updateUserPrivacy({ uid: currentUserId, hideBalances: nextValue });
-    } catch (error) {
+    } catch (_error) {
       setPrivacyHideBalances(previousValue);
       Alert.alert('Privacidade', 'Não foi possível atualizar a preferência.');
     }
-  };
+  }, [currentUserId, privacyHideBalances, setPrivacyHideBalances]);
 
-  const getGreeting = () => {
+  const getGreeting = useCallback(() => {
     const base = getGreetingLabel();
     if (userName) return `${base}, ${userName}`;
     return `${base}!`;
-  };
+  }, [userName]);
 
-  const formatBalance = (value) => (privacyHideBalances ? '•••••' : formatCurrency(value));
-  const receivablesEmptyLabel = receivablesLoading
-    ? 'Carregando recebíveis...'
-    : receivablesError || 'Tudo pago por enquanto!';
+  const formatBalance = useCallback(
+    (value) => (privacyHideBalances ? '•••••' : formatBRL(value)),
+    [privacyHideBalances]
+  );
+  const balanceTodayTone = homeKpis.balanceToday < 0 ? 'danger' : homeKpis.balanceToday > 0 ? 'success' : 'neutral';
+  const agendaTodayCount = todayAppointments.length;
+  const dailyProgressWidth = dailyProgressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
 
-  const getStatusLabel = (appointment) => {
+  const getStatusLabel = useCallback((appointment) => {
     const status = appointment?.status;
     if (status === 'done') return 'Concluído';
     if (status === 'rescheduled') return 'Remarcado';
@@ -820,24 +1000,66 @@ const HomeScreen = ({ navigation }) => {
     if (confirmationStatus === 'canceled') return 'Cancelado';
     if (confirmationStatus === 'sent') return 'Aguardando resposta';
     return 'Agendado';
-  };
+  }, []);
 
-  const getStatusColor = (appointment) => {
-    const status = appointment?.status;
-    if (status === 'done') return COLORS.success;
-    if (status === 'rescheduled') return COLORS.warning;
-    const confirmationStatus = resolveConfirmationStatus(appointment);
-    if (confirmationStatus === 'confirmed') return COLORS.success;
-    if (confirmationStatus === 'canceled') return COLORS.danger;
-    return COLORS.primary;
-  };
+  const getAppointmentPillStatus = useCallback((appointment) => appointmentToPillStatus(appointment), []);
+
+  const timelineItems = useMemo(() => {
+    const statusToImportance = {
+      OVERDUE: 'high',
+      PENDING: 'medium',
+      SCHEDULED: 'low',
+      PAID: 'low',
+    };
+
+    return normalizeEvents({
+      receivables: receivableEntries,
+      appointments: todayAppointments,
+    })
+      .slice(0, 20)
+      .map((event) => ({
+        id: `timeline-${event.id}`,
+        date: event.date,
+        type: String(event.type || event.status || 'UPDATE').toUpperCase(),
+        title: event.title,
+        subtitle: event.subtitle,
+        importance: statusToImportance[event.status] || 'low',
+      }));
+  }, [receivableEntries, todayAppointments]);
+
+  const todayAppointmentRows = useMemo(
+    () =>
+      todayAppointments.map((appointment) => (
+        <View key={appointment.appointmentKey || appointment.id} style={styles.appointmentRow}>
+          <View style={styles.timeColumn}>
+            <Text style={styles.timeText}>{appointment.time}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.appointmentCardTouchable}
+            onPress={() => handleOpenAppointmentMenu(appointment)}
+            activeOpacity={0.85}
+          >
+            <Card style={styles.appointmentCard}>
+              <Text style={styles.appName}>{appointment.name}</Text>
+              <Text style={styles.appLocation}>{appointment.location}</Text>
+              <StatusPill
+                status={getAppointmentPillStatus(appointment)}
+                label={getStatusLabel(appointment)}
+                style={styles.appointmentPill}
+              />
+            </Card>
+          </TouchableOpacity>
+        </View>
+      )),
+    [getAppointmentPillStatus, getStatusLabel, handleOpenAppointmentMenu, todayAppointments]
+  );
 
   const selectedAppointmentConfirmationStatus = resolveConfirmationStatus(selectedAppointment);
   const isSelectedAppointmentScheduled = selectedAppointment?.status === 'scheduled';
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }}>
+    <>
+      <AppScreen scroll style={styles.safeArea} contentContainerStyle={styles.screenContent}>
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>{getGreeting()}</Text>
@@ -853,156 +1075,127 @@ const HomeScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.summaryTitle}>Resumo de {monthLabel}</Text>
-            <View style={styles.summaryActions}>
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={handleToggleHideBalances}
-              >
-                <Icon name={privacyHideBalances ? 'eye-off' : 'eye'} size={18} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-              <Icon name="bar-chart-2" size={20} color={COLORS.primary} />
-            </View>
+        <View style={styles.progressSection}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressTitle}>{tasksProgress.percent}% do dia resolvido</Text>
+            <Text style={styles.progressMeta}>
+              {tasksProgress.done}/{tasksProgress.total}
+            </Text>
           </View>
-
-          <View style={styles.summaryValues}>
-            <View>
-              <Text style={styles.label}>Recebido</Text>
-              <Text style={styles.bigValue}>{formatBalance(financialData.received)}</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.label}>Previsto</Text>
-              <Text style={styles.subValue}>{formatBalance(financialData.total)}</Text>
-            </View>
+          <View style={styles.progressTrack}>
+            <Animated.View style={[styles.progressFill, { width: dailyProgressWidth }]} />
           </View>
-
-          <View style={styles.progressBg}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: privacyHideBalances ? '0%' : financialData.progress },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressText}>
-            Falta {formatBalance(financialData.pending)} para a meta
-          </Text>
         </View>
 
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>A Receber</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('CobrancasHoje')}>
-              <Text style={styles.sectionAction}>Cobranças de hoje</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={upcomingPayments}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.id}
-            ListEmptyComponent={<Text style={styles.emptyText}>{receivablesEmptyLabel}</Text>}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.paymentCard}
-                onPress={() => setSelectedPayment(item)}
-              >
-                <View style={styles.paymentIcon}>
-                  <Icon name="dollar-sign" size={20} color={COLORS.primary} />
-                </View>
-                <View>
-                  <Text
-                    style={[styles.paymentName, item.isOverdue && styles.paymentNameOverdue]}
-                    numberOfLines={1}
-                  >
-                    {item.name}
-                  </Text>
-                <Text style={styles.paymentDate}>
-                  {item.dueDate
-                    ? `Vence ${formatDueDateShortLabel(item.dueDate)}`
-                    : 'Vencimento não definido'}
-                </Text>
-                  <TouchableOpacity
-                    style={[
-                      styles.chargeButton,
-                      (item.receivable?.lastChargeSentAt || (item.receivable?.chargeHistory?.length || 0) > 0) &&
-                        styles.chargeButtonPaid,
-                    ]}
-                    onPress={() => {
-                      const hasCharge = Boolean(
-                        item.receivable?.lastChargeSentAt ||
-                          (item.receivable?.chargeHistory?.length || 0) > 0
-                      );
-                      if (hasCharge) {
-                        confirmMarkReceivablePaid(item);
-                        return;
-                      }
-                      handleChargeReceivable(item);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.chargeButtonText,
-                        (item.receivable?.lastChargeSentAt || (item.receivable?.chargeHistory?.length || 0) > 0) &&
-                          styles.chargeButtonTextPaid,
-                      ]}
-                    >
-                      {item.receivable?.lastChargeSentAt || (item.receivable?.chargeHistory?.length || 0) > 0
-                        ? 'Pago?'
-                        : 'Cobrar'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            )}
+          <SwipeCarousel
+            hint="Arraste para ver mais"
+            slides={[
+              {
+                key: 'today-overview',
+                content: (
+                  <View style={styles.carouselSlide}>
+                    <SectionHeader
+                      title="Visão de hoje"
+                      style={styles.sectionHeader}
+                      action={(
+                        <TouchableOpacity style={styles.eyeButton} onPress={handleToggleHideBalances}>
+                          <Icon name={privacyHideBalances ? 'eye-off' : 'eye'} size={18} color={COLORS.textSecondary} />
+                        </TouchableOpacity>
+                      )}
+                    />
+                    <Card style={styles.heroCard}>
+                      <View style={styles.kpiGrid}>
+                        <View style={[styles.kpiItem, styles.kpiItemDivider]}>
+                          <Text style={styles.kpiLabel}>Saldo hoje</Text>
+                          {privacyHideBalances ? (
+                            <Text style={styles.kpiMaskedValue}>•••••</Text>
+                          ) : (
+                            <MoneyText value={homeKpis.balanceToday} variant="md" tone={balanceTodayTone} />
+                          )}
+                        </View>
+
+                        <View style={[styles.kpiItem, styles.kpiItemDivider]}>
+                          <Text style={styles.kpiLabel}>A receber (7 dias)</Text>
+                          {privacyHideBalances ? (
+                            <Text style={styles.kpiMaskedValue}>•••••</Text>
+                          ) : (
+                            <MoneyText value={homeKpis.receivables7Days} variant="sm" tone="success" />
+                          )}
+                        </View>
+
+                        <View style={styles.kpiItem}>
+                          <Text style={styles.kpiLabel}>Agenda (hoje)</Text>
+                          <Text style={styles.kpiCountValue}>{agendaTodayCount}</Text>
+                        </View>
+                      </View>
+                    </Card>
+                  </View>
+                ),
+              },
+              {
+                key: 'daily-plan',
+                content: (
+                  <View style={styles.carouselSlide}>
+                    <SectionHeader title="Plano de hoje" style={styles.sectionHeader} />
+                    <DailyPlanCard
+                      receivables={receivableEntries}
+                      appointments={todayAppointments}
+                      today={todayReferenceDate}
+                      completedTaskIds={completedTaskIds}
+                      runningTaskIds={runningTaskIds}
+                      loading={receivablesLoading}
+                      onRunTask={handleRunDailyTask}
+                      style={styles.actionCard}
+                    />
+                  </View>
+                ),
+              },
+              {
+                key: 'timeline',
+                content: (
+                  <View style={styles.carouselSlide}>
+                    <SectionHeader title="Timeline" style={styles.sectionHeader} />
+                    <ActivityFeedCard
+                      items={timelineItems}
+                      maxItems={6}
+                      title="Movimentações recentes"
+                      emptyTitle="Sem eventos recentes"
+                      emptyMessage="Quando houver movimentações, elas aparecem aqui."
+                    />
+                  </View>
+                ),
+              },
+            ]}
           />
         </View>
 
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Agenda Hoje</Text>
-          </View>
+          <SectionHeader title="Agenda Hoje" style={styles.sectionHeader} />
           {todayAppointments.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Icon name="calendar" size={40} color={COLORS.textSecondary} style={{ opacity: 0.3 }} />
-              <Text style={styles.emptyText}>Agenda livre hoje.</Text>
-            </View>
+            <EmptyState
+              icon={<Icon name="calendar" size={34} color={COLORS.textSecondary} />}
+              title="Agenda livre hoje"
+              message="Nenhum compromisso confirmado para hoje."
+              style={styles.emptyState}
+            />
           ) : (
-            todayAppointments.map((appointment) => (
-              <View key={appointment.appointmentKey || appointment.id} style={styles.appointmentRow}>
-                <View style={styles.timeColumn}>
-                  <Text style={styles.timeText}>{appointment.time}</Text>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.appointmentCard,
-                    { borderLeftColor: getStatusColor(appointment) },
-                  ]}
-                  onPress={() => handleOpenAppointmentMenu(appointment)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.appName}>{appointment.name}</Text>
-                  <Text style={styles.appLocation}>{appointment.location}</Text>
-                  <Text
-                    style={[
-                      styles.statusLabel,
-                      { color: getStatusColor(appointment) },
-                    ]}
-                  >
-                    {getStatusLabel(appointment)}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ))
+            todayAppointmentRows
           )}
         </View>
-      </ScrollView>
+      </AppScreen>
 
-      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddClient')}>
-        <Icon name="plus" size={28} color={COLORS.textOnPrimary} />
-      </TouchableOpacity>
+      <Fab
+        style={styles.fab}
+        accessibilityLabel="Abrir ações rápidas"
+        onPress={() => setActionSheetVisible(true)}
+      />
+
+      <ActionSheet
+        visible={actionSheetVisible}
+        onClose={() => setActionSheetVisible(false)}
+        navigation={navigation}
+      />
 
       <Modal
         visible={!!selectedPayment}
@@ -1179,18 +1372,25 @@ const HomeScreen = ({ navigation }) => {
         }}
         onConfirm={handleConfirmReschedule}
       />
-    </SafeAreaView>
+
+      <SnackbarUndo
+        visible={undoVisible}
+        message={undoMessage}
+        onUndo={handleUndo}
+        onDismiss={closeUndo}
+      />
+    </>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  container: { flex: 1 },
+  screenContent: { paddingBottom: 100 },
   header: {
-    padding: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    marginBottom: 24,
   },
   greeting: { ...TYPOGRAPHY.title, color: COLORS.textPrimary },
   date: {
@@ -1205,16 +1405,52 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     ...SHADOWS.small,
   },
-  summaryCard: {
-    marginHorizontal: 24,
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 20,
-    ...SHADOWS.medium,
-    marginBottom: 30,
+  progressSection: {
+    marginBottom: 20,
   },
-  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
-  summaryActions: { flexDirection: 'row', alignItems: 'center' },
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  progressTitle: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+  },
+  progressMeta: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(113,128,150,0.22)',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: COLORS.primary,
+  },
+  heroCard: {
+    marginBottom: 4,
+  },
+  carouselSlide: {
+    paddingRight: 2,
+  },
+  kpiGrid: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  kpiItem: {
+    flex: 1,
+    paddingHorizontal: 10,
+  },
+  kpiItemDivider: {
+    borderRightWidth: 1,
+    borderRightColor: COLORS.border,
+  },
   eyeButton: {
     width: 32,
     height: 32,
@@ -1224,40 +1460,295 @@ const styles = StyleSheet.create({
     marginRight: 8,
     backgroundColor: 'rgba(160,174,192,0.15)',
   },
-  summaryTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.textSecondary },
-  summaryValues: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginBottom: 16,
+  kpiLabel: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginBottom: 6,
   },
-  bigValue: { ...TYPOGRAPHY.hero, color: COLORS.textPrimary },
-  subValue: { ...TYPOGRAPHY.subtitle, color: COLORS.textSecondary },
-  label: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 4 },
-  progressBg: { height: 8, backgroundColor: '#EDF2F7', borderRadius: 4, overflow: 'hidden', marginBottom: 8 },
-  progressFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 4 },
-  progressText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, fontStyle: 'italic' },
-  section: { marginBottom: 30 },
-  sectionHeader: {
+  kpiMaskedValue: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+    letterSpacing: 1,
+  },
+  kpiCountValue: {
+    ...TYPOGRAPHY.subtitle,
+    color: COLORS.primary,
+  },
+  actionCard: {
+    marginBottom: 4,
+  },
+  tomorrowCard: {
+    marginBottom: 4,
+  },
+  tomorrowRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  tomorrowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    backgroundColor: 'rgba(66,153,225,0.12)',
+  },
+  tomorrowTextBlock: {
+    flex: 1,
+  },
+  tomorrowTitle: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+    marginBottom: 3,
+  },
+  tomorrowSubtitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+  tomorrowButton: {
+    marginTop: 2,
+  },
+  forecastCard: {
+    marginBottom: 4,
+  },
+  forecastTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginLeft: 24,
-    marginRight: 24,
-    marginBottom: 15,
+    marginBottom: 12,
   },
-  sectionTitle: {
-    ...TYPOGRAPHY.subtitle,
+  forecastLabel: {
+    ...TYPOGRAPHY.bodyMedium,
     color: COLORS.textPrimary,
   },
-  sectionAction: { ...TYPOGRAPHY.caption, color: COLORS.primary },
+  forecastSplitRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  forecastSplitItem: {
+    flex: 1,
+  },
+  forecastSplitDivider: {
+    borderRightWidth: 1,
+    borderRightColor: COLORS.border,
+    paddingRight: 10,
+    marginRight: 10,
+  },
+  forecastSubLabel: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  forecastHiddenValue: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+    letterSpacing: 1,
+  },
+  forecastAlertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+    backgroundColor: 'rgba(229,62,62,0.1)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  forecastAlertText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.danger,
+    flex: 1,
+  },
+  forecastRiskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  forecastRiskText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    flex: 1,
+    lineHeight: 18,
+  },
+  monthCard: {
+    marginBottom: 4,
+  },
+  monthHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  monthScoreLabel: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+  },
+  monthScoreBadge: {
+    minWidth: 48,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    alignItems: 'center',
+    backgroundColor: 'rgba(43,108,176,0.12)',
+  },
+  monthScoreValue: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+  monthFactorsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    gap: 8,
+  },
+  monthFactorText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    flex: 1,
+  },
+  monthInsightsBlock: {
+    marginTop: 8,
+    marginBottom: 10,
+    gap: 8,
+  },
+  monthInsightRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  monthInsightText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textPrimary,
+    flex: 1,
+    lineHeight: 18,
+  },
+  monthRiskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  monthRiskText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    flex: 1,
+    lineHeight: 18,
+  },
+  actionCardContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  actionIconContainer: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  actionIconDanger: {
+    backgroundColor: 'rgba(229, 62, 62, 0.12)',
+  },
+  actionIconWarning: {
+    backgroundColor: 'rgba(214, 158, 46, 0.16)',
+  },
+  actionIconSuccess: {
+    backgroundColor: 'rgba(56, 161, 105, 0.15)',
+  },
+  actionTextContent: {
+    flex: 1,
+  },
+  actionTitle: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+    marginBottom: 4,
+  },
+  actionDescription: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+  },
+  actionButton: {
+    marginTop: 4,
+  },
+  timelineGroup: {
+    marginBottom: 14,
+    gap: 10,
+  },
+  timelineBucketTitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 2,
+  },
+  timelineCard: {
+    marginBottom: 10,
+  },
+  timelineHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  timelineMainInfo: {
+    flex: 1,
+  },
+  timelineTitle: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+    marginBottom: 2,
+  },
+  timelineSubtitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  timelinePill: {
+    marginTop: 1,
+  },
+  timelineMetaRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  timelineDateLabel: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  timelineAmountHidden: {
+    ...TYPOGRAPHY.bodyMedium,
+    color: COLORS.textPrimary,
+    letterSpacing: 1,
+  },
+  section: { marginBottom: 30 },
+  sectionHeader: {
+    marginBottom: 12,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 2,
+  },
+  skeletonSpacing: {
+    marginBottom: 10,
+  },
+  paymentsListContent: {
+    paddingHorizontal: 2,
+  },
+  paymentsEmptyState: {
+    width: 260,
+  },
+  paymentCardTouchable: {
+    marginRight: 12,
+  },
   paymentCard: {
-    width: 190,
-    backgroundColor: COLORS.surface,
-    marginLeft: 24,
-    borderRadius: 16,
-    padding: 16,
-    ...SHADOWS.small,
+    width: 220,
+  },
+  paymentCardContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -1270,42 +1761,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
+  paymentInfo: { flex: 1 },
   paymentName: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
   paymentNameOverdue: { color: COLORS.danger },
-  paymentDate: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 2 },
-  chargeButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(43,108,176,0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(43,108,176,0.2)',
+  paymentDate: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 4 },
+  paymentPill: {
+    marginTop: 8,
   },
-  chargeButtonText: { ...TYPOGRAPHY.caption, color: COLORS.primary },
-  chargeButtonPaid: {
-    backgroundColor: 'rgba(72,187,120,0.15)',
-    borderColor: 'rgba(72,187,120,0.35)',
+  chargeActionButton: {
+    marginTop: 10,
+    minHeight: 36,
+    paddingVertical: 8,
   },
-  chargeButtonTextPaid: { color: COLORS.success, fontWeight: '600' },
-  emptyText: { ...TYPOGRAPHY.body, marginLeft: 24, color: COLORS.textSecondary },
+  chargeActionButtonText: {
+    ...TYPOGRAPHY.caption,
+    fontWeight: '600',
+  },
   appointmentRow: { flexDirection: 'row', paddingHorizontal: 24, marginBottom: 16 },
   timeColumn: { width: 60, alignItems: 'center', paddingTop: 10 },
   timeText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
+  appointmentCardTouchable: { flex: 1 },
   appointmentCard: {
     flex: 1,
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.primary,
-    ...SHADOWS.small,
   },
   appName: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
   appLocation: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 4 },
-  statusLabel: { ...TYPOGRAPHY.caption, marginTop: 6, fontWeight: '600' },
-  emptyState: { alignItems: 'center', padding: 20 },
+  appointmentPill: { marginTop: 8 },
+  emptyState: { alignItems: 'center', paddingVertical: 20 },
   fab: {
     position: 'absolute',
     bottom: 30,

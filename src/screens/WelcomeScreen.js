@@ -1,9 +1,9 @@
 // /src/screens/WelcomeScreen.js
 
 import React from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { COLORS as THEME, TYPOGRAPHY } from '../theme/legacy';
 
 const COLORS = {
   background: THEME.background,
@@ -18,14 +18,9 @@ const WelcomeScreen = ({ onContinue }) => {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <View style={styles.content}>
-          <Image 
-            source={require('../../assets/logo.png')} 
-            style={styles.logo} 
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>Seu assistente financeiro pessoal.</Text>
+          <Text style={styles.title}>Flowdesk</Text>
           <Text style={styles.description}>
-            Controle seus contratos, agenda e pagamentos de forma simples e inteligente.
+            Intelligent financial workspace for service professionals.
           </Text>
         </View>
         <TouchableOpacity style={styles.continueButton} onPress={onContinue}>
@@ -52,11 +47,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
-  },
-  logo: {
-    width: 220,
-    height: 220,
-    marginBottom: 24,
   },
   title: {
     ...TYPOGRAPHY.title,

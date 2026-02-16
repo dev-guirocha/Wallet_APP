@@ -1,99 +1,238 @@
-# Wallet.A - Gestor Financeiro para Autônomos (Mobile)
+---
 
-**Wallet.A** é um aplicativo móvel, desenvolvido em React Native, com uma interface minimalista e elegante, projetado para ser o assistente financeiro definitivo para profissionais autônomos. Gerencie seus clientes, agenda e pagamentos de forma intuitiva e centralizada, diretamente do seu celular.
+# Flowdesk — Intelligent financial workspace for service professionals
 
-## ✨ Funcionalidades Principais
+A mobile application that helps service professionals manage revenue predictability, payment behavior, and financial decision-making.
 
-  * **📱 Design Minimalista e Moderno:** Uma interface limpa, focada na usabilidade e construída com base em uma paleta de cores suaves para uma experiência de usuário agradável e profissional.
-  * **🚀 Onboarding Inteligente:** Um fluxo de boas-vindas em duas etapas que apresenta o app e personaliza a experiência do usuário (Cliente vs. Paciente) com base na sua profissão.
-  * **📈 Dashboard "Centro de Comando":** A tela inicial oferece uma visão geral e dinâmica do seu negócio, incluindo um resumo financeiro do mês, próximos pagamentos e os compromissos do dia.
-  * **👥 Gestão Completa de Clientes:**
-      * Cadastro detalhado de clientes com nome, local, dias de atendimento, horário, valor e contato.
-      * Lista de clientes com um campo de busca que filtra em tempo real.
-      * Ações rápidas de "arrastar para o lado" para marcar como pago, editar ou apagar um registro.
-  * **📅 Agenda Interativa:**
-      * Um calendário visual onde os dias com compromissos são marcados.
-      * Ao selecionar uma data, os compromissos daquele dia são listados de forma clara, mantendo a interface limpa.
-  * **💾 Persistência de Dados Local:** As informações dos seus clientes são salvas diretamente no dispositivo usando `@react-native-async-storage/async-storage`, garantindo que seus dados estejam sempre disponíveis, mesmo offline.
+Unlike traditional finance trackers, Flowdesk does not focus on bookkeeping — it focuses on **operational cash-flow control**.
 
-## 🛠️ Tecnologias Utilizadas
+The system continuously analyzes receivables, appointments and payment history to guide the user on what to do next.
 
-Este projeto foi construído com uma stack de desenvolvimento moderna, focada em performance e na criação de uma experiência nativa para iOS e Android a partir de uma única base de código.
+---
 
-  * **Core Framework:**
+## Why this project exists
 
-      * 
-      * 
-      * 
+Freelancers rarely fail because of low revenue.
 
-  * **Navegação:**
+They fail because of:
 
-      * **React Navigation:** Para toda a estrutura de navegação, incluindo:
-          * `Bottom Tabs Navigator`: Para a navegação principal (Início, Agenda, Clientes).
-          * `Stack Navigator`: Para abrir telas modais, como a de "Adicionar Cliente".
+* delayed payments
+* inconsistent scheduling
+* mental overload managing clients manually
 
-  * **Componentes de UI & Estilo:**
+Flowdesk reduces cognitive load by transforming raw financial data into daily actionable decisions.
 
-      * **React Native Calendars:** Para a criação da agenda interativa.
-      * **React Native Swipe List View:** Para implementar as ações de "arrastar" nos cards de cliente.
-      * **React Native Vector Icons:** Para uma iconografia limpa e consistente.
-      * **Expo Linear Gradient:** Utilizado no fluxo de onboarding.
+The product behaves closer to an *operational copilot* than a ledger.
 
-  * **Gerenciamento de Dados:**
+---
 
-      * **AsyncStorage:** Para persistência de dados local no dispositivo.
-      * **React Context API:** Para um gerenciamento de estado global e centralizado.
-      * **UUID:** Para a geração de identificadores únicos para cada cliente.
+## Core product idea
 
-## 🚀 Como Executar o Projeto
+The app answers three questions automatically:
 
-Para rodar este projeto localmente, você precisará ter o ambiente de desenvolvimento React Native/Expo configurado.
+**Today:**
+Who should I charge?
 
-### Pré-requisitos
+**This week:**
+Will I run out of money?
 
-  * Node.js (LTS)
-  * npm ou yarn
-  * Xcode (para rodar no simulador de iOS) ou Android Studio (para rodar no emulador de Android)
+**This month:**
+Am I improving financially?
 
-### Instalação
+---
 
-1.  Clone o repositório:
-    ```bash
-    git clone https://github.com/dev-guirocha/WalletAPP.git
-    ```
-2.  Acesse a pasta do projeto:
-    ```bash
-    cd WalletAPP
-    ```
-3.  Instale as dependências:
-    ```bash
-    npm install
-    ```
-4.  Execute no simulador de iOS:
-    ```bash
-    npx expo run:ios
-    ```
-5.  Execute no emulador de Android:
-    ```bash
-    npx expo run:android
-    ```
+## Key Features
 
-## 🤝 Contribuição
+### Daily execution system
 
-Contribuições são super bem-vindas\! Se você tem ideias para novas funcionalidades, melhorias ou correções de bugs, sinta-se à vontade para:
+* Automatic daily task generation
+* Optimistic task completion
+* Undo after financial actions
+* Daily progress indicator
 
-1.  Fazer um **Fork** do projeto.
-2.  Criar uma nova **Branch** (`git checkout -b feature/sua-feature`).
-3.  Fazer **Commit** das suas mudanças (`git commit -m 'feat: Adiciona sua feature'`).
-4.  Enviar um **Pull Request**.
+### Smart receivables management
 
-## ✉️ Contato
+* Contextual WhatsApp charge messages
+* Risk-based prioritization
+* Duplicate action guard
+* Full audit trail per receivable
 
-Para dúvidas ou sugestões, entre em contato:
+### Financial prediction
 
-  * **Email:** dev.guirocha@gmail.com
-  * **GitHub:** [@dev-guirocha](https://github.com/dev-guirocha)
+* 7-day cash flow forecast
+* Negative balance alerts
+* Late payment prediction
+* Intelligent reminders
 
------
+### Monthly financial analytics
 
-*Desenvolvido com ❤️ por Guilherme Rocha.*
+* Financial score (0-100)
+* Month-over-month insights
+* Payment behavior trends
+* Client reliability tracking
+
+### Activity feed
+
+A timeline describing business events:
+
+* client paid late
+* risk increased
+* forecast worsened
+* recovery improved
+
+This changes the app from tool → monitoring system.
+
+---
+
+## Architecture Overview
+
+The project intentionally separates **UI from decision engines**.
+
+```
+UI Layer → React Native components
+State Layer → Zustand store
+Data Layer → Firestore service
+Decision Layer → deterministic engines
+```
+
+The goal: product intelligence must be testable without UI or database.
+
+---
+
+## Decision Engines (core of the project)
+
+These modules represent the actual product value:
+
+| Engine           | Responsibility                      |
+| ---------------- | ----------------------------------- |
+| DailyTasksEngine | Generates what user should do today |
+| RiskEngine       | Determines payment risk             |
+| CashFlowForecast | Predicts future balance             |
+| ReminderEngine   | Suggests reminders                  |
+| FinancialScore   | Monthly performance score           |
+| InsightEngine    | Month comparison insights           |
+| ActivityFeed     | Generates business timeline         |
+
+All engines are pure functions.
+
+They do not access Firestore or UI directly.
+
+---
+
+## Reliability mechanisms
+
+Financial actions cannot be fragile.
+
+The app implements:
+
+* action guard (prevents double execution)
+* optimistic UI updates
+* undo system
+* audit trail
+* sync feedback per item
+* retry flow for network failures
+
+This prevents data corruption in unstable mobile environments.
+
+---
+
+## Tech Stack
+
+**Mobile**
+
+* React Native (Expo)
+* React Navigation
+
+**State**
+
+* Zustand
+
+**Backend**
+
+* Firebase Firestore
+
+**Language**
+
+* JavaScript + progressive TypeScript
+
+**UI**
+
+* Custom design system (no UI framework)
+
+---
+
+## Project Structure
+
+```
+src/
+  components/       reusable UI system
+  screens/          application flows
+  store/            global state
+  services/         Firestore access
+  utils/            helpers
+  engines/          product intelligence
+```
+
+The engines directory contains most of the product complexity.
+
+---
+
+## Example: deterministic behavior
+
+The app does not simply mark a payment.
+
+It transforms it into historical knowledge:
+
+```
+charge sent → late → recovered → improves risk
+```
+
+Future decisions depend on past behavior.
+
+This is why audit history exists.
+
+---
+
+## Running locally
+
+### Requirements
+
+* Node LTS
+* Expo
+* Firebase project
+
+### Install
+
+```
+npm install
+```
+
+### Run
+
+```
+npx expo start
+```
+
+---
+
+## What this project demonstrates
+
+This project was intentionally built to showcase:
+
+* product thinking
+* behavioral UX
+* deterministic business logic
+* offline-safe financial operations
+* separation of decision engines
+* mobile reliability patterns
+
+Not just CRUD.
+
+---
+
+## Author
+
+Guilherme Rocha
+Software Developer focused on mobile product engineering
+
+---

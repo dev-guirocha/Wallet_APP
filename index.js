@@ -5,6 +5,6 @@ import App from './App';
 // Always enable native screens to avoid passing screen-only props to plain RCTView.
 enableScreens(true);
 
-// Expo-native templates expect "main", while legacy native shells can still use "WalletAPP".
+// Expo-native templates expect "main".
 AppRegistry.registerComponent('main', () => App);
-AppRegistry.registerComponent('WalletAPP', () => App);
+AppRegistry.registerComponent('Flowdesk', () => App);

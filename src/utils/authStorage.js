@@ -1,10 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const REMEMBER_ME_KEY = '@WalletA:rememberMe';
+const REMEMBER_ME_KEY = '@Flowdesk:rememberMe';
+const LEGACY_REMEMBER_ME_KEY = '@WalletA:rememberMe';
 
 export const getRememberMePreference = async () => {
   try {
-    const value = await AsyncStorage.getItem(REMEMBER_ME_KEY);
+    let value = await AsyncStorage.getItem(REMEMBER_ME_KEY);
+    if (value === null) {
+      value = await AsyncStorage.getItem(LEGACY_REMEMBER_ME_KEY);
+      if (value !== null) {
+        await AsyncStorage.setItem(REMEMBER_ME_KEY, value);
+      }
+    }
     if (value === null) return true;
     return value === 'true';
   } catch (error) {

@@ -1,23 +1,21 @@
-// /src/screens/ClientsScreen.js
-
-import React, { useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  TouchableHighlight,
-} from 'react-native';
-import { SwipeListView } from 'react-native-swipe-list-view';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { memo, useCallback, useMemo, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather as Icon } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-import { formatCurrency, getMonthKey } from '../utils/dateUtils';
+import {
+  AppScreen,
+  Button,
+  Card,
+  ListContainer,
+  MoneyText,
+  ScreenHeader,
+  StatusPill,
+} from '../components';
 import { useClientStore } from '../store/useClientStore';
+import { getMonthKey } from '../utils/dateUtils';
 import { buildPhoneE164FromRaw, openWhatsAppWithMessage } from '../utils/whatsapp';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, TYPOGRAPHY } from '../theme/legacy';
 
 const normalizePaymentStatus = (entry) => {
   if (!entry) return 'pending';
@@ -31,249 +29,299 @@ const getClientName = (client) => {
   return normalized || 'Sem nome';
 };
 
+const resolveStatusLabel = (isPaid, dueDay) => {
+  if (isPaid) return 'Pago';
+  const day = Number(dueDay);
+  if (Number.isFinite(day) && day > 0) return `Vence dia ${day}`;
+  return 'Pendente';
+};
+
+const ClientRow = memo(function ClientRow({
+  item,
+  onPress,
+  onTogglePayment,
+  onOpenWhatsApp,
+}) {
+  const phoneE164 =
+    item?.phoneE164 || buildPhoneE164FromRaw(item?.phoneRaw || item?.phone || '');
+  const canMessage = Boolean(phoneE164);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Abrir detalhes de ${item.clientName}`}
+      onPress={onPress}
+      style={({ pressed }) => [pressed && styles.itemPressed]}
+    >
+      <Card style={styles.clientCard}>
+        <View style={styles.clientTopRow}>
+          <View style={styles.nameBlock}>
+            <Text style={styles.clientName} numberOfLines={1}>
+              {item.clientName}
+            </Text>
+            <Text style={styles.clientSubtitle} numberOfLines={1}>
+              {item.location || 'Sem local definido'}
+            </Text>
+          </View>
+
+          <View style={styles.amountBlock}>
+            <MoneyText
+              value={Number(item?.value || 0)}
+              variant="sm"
+              tone={item.isPaid ? 'success' : 'neutral'}
+            />
+            <StatusPill status={item.pillStatus} label={item.statusLabel} style={styles.statusPill} />
+          </View>
+        </View>
+
+        <View style={styles.actionsRow}>
+          <Button
+            label={item.isPaid ? 'Desfazer recebimento' : 'Registrar recebimento'}
+            variant={item.isPaid ? 'secondary' : 'primary'}
+            onPress={onTogglePayment}
+            accessibilityLabel={`${item.isPaid ? 'Desfazer recebimento de' : 'Registrar recebimento de'} ${item.clientName}`}
+            style={styles.primaryAction}
+            textStyle={styles.actionText}
+          />
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Enviar mensagem para ${item.clientName}`}
+            onPress={onOpenWhatsApp}
+            disabled={!canMessage}
+            style={({ pressed }) => [
+              styles.messageButton,
+              !canMessage && styles.messageButtonDisabled,
+              pressed && canMessage ? styles.messageButtonPressed : null,
+            ]}
+          >
+            <Icon name="message-circle" size={18} color={canMessage ? COLORS.success : COLORS.textSecondary} />
+          </Pressable>
+        </View>
+      </Card>
+    </Pressable>
+  );
+});
+
 const ClientsScreen = ({ navigation }) => {
   const clients = useClientStore((state) => state.clients);
+  const isLoading = useClientStore((state) => Boolean(state.isLoading));
   const clientTerm = useClientStore((state) => state.clientTerm);
   const togglePayment = useClientStore((state) => state.togglePayment);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const swipeListViewRef = useRef(null);
   const currentMonthKey = getMonthKey();
 
-  const clientsWithStatus = useMemo(() => {
-    return clients.map((client) => {
-      const status = normalizePaymentStatus(client.payments?.[currentMonthKey]);
-      const isPaid = status === 'paid';
-      const clientName = getClientName(client);
-      const dueDay = Number(client?.dueDay);
-      return {
-        ...client,
-        statusLabel: isPaid ? 'Pago' : Number.isFinite(dueDay) && dueDay > 0 ? `Vence dia ${dueDay}` : 'Pendente',
-        isPaid,
-        clientName,
-      };
-    });
-  }, [clients, currentMonthKey]);
+  const hasDataError = !Array.isArray(clients);
 
-  const filteredClients = useMemo(() => {
-    const query = String(searchQuery || '').toLowerCase();
-    return clientsWithStatus
-      .filter((client) => String(client.clientName || '').toLowerCase().includes(query))
+  const clientsWithStatus = useMemo(() => {
+    const source = Array.isArray(clients) ? clients : [];
+    return source
+      .map((client) => {
+        const status = normalizePaymentStatus(client?.payments?.[currentMonthKey]);
+        const isPaid = status === 'paid';
+        return {
+          ...client,
+          clientName: getClientName(client),
+          isPaid,
+          statusLabel: resolveStatusLabel(isPaid, client?.dueDay),
+          pillStatus: isPaid ? 'PAID' : 'PENDING',
+        };
+      })
       .sort((a, b) => {
         if (a.isPaid !== b.isPaid) return a.isPaid ? 1 : -1;
         return String(a.clientName || '').localeCompare(String(b.clientName || ''));
       });
-  }, [searchQuery, clientsWithStatus]);
+  }, [clients, currentMonthKey]);
 
-  const closeAllOpenRows = () => swipeListViewRef.current?.closeAllOpenRows?.();
-
-  const handleTogglePayment = (client) => {
-    togglePayment(client.id, currentMonthKey);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    closeAllOpenRows();
-  };
-
-  const openWhatsApp = async (client) => {
-    const phoneE164 = client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
-    await openWhatsAppWithMessage({ phoneE164, message: '' });
-  };
-
-  const renderClientCard = ({ item }) => {
-    const formattedValue = formatCurrency(item.value || 0);
-    const phoneE164 = item.phoneE164 || buildPhoneE164FromRaw(item.phoneRaw || item.phone || '');
-    const canCall = Boolean(phoneE164);
-    const avatarBg = item.isPaid ? 'rgba(56,161,105,0.16)' : 'rgba(113,128,150,0.16)';
-    const avatarTextColor = item.isPaid ? COLORS.success : COLORS.textSecondary;
-
-    return (
-      <TouchableHighlight
-        style={styles.cardWrapper}
-        underlayColor={COLORS.background}
-        onPress={() => navigation.navigate('ClientDetail', { clientId: item.id })}
-      >
-        <View style={styles.card}
-        >
-          <View style={styles.cardHeader}
-          >
-            <View style={styles.headerLeft}
-            >
-              <View style={[styles.avatar, { backgroundColor: avatarBg }]}
-              >
-                <Text style={[styles.avatarText, { color: avatarTextColor }]}
-                >
-                  {item.clientName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-              <View style={styles.nameBlock}
-              >
-                <Text style={styles.clientName} numberOfLines={1}
-                >
-                  {item.clientName}
-                </Text>
-                <Text style={[styles.statusText, item.isPaid ? styles.textSuccess : styles.textWarning]}
-                >
-                  {item.statusLabel}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.valueText}
-            >
-              {formattedValue}
-            </Text>
-          </View>
-
-          <View style={styles.divider}
-          />
-
-          <View style={styles.cardFooter}
-          >
-            <View style={styles.footerInfo}
-            >
-              <Icon name="map-pin" size={14} color={COLORS.textSecondary} />
-              <Text style={styles.footerText} numberOfLines={1}
-              >
-                {item.location || 'Sem local'}
-              </Text>
-            </View>
-            {canCall ? (
-              <TouchableOpacity onPress={() => openWhatsApp(item)}
-              >
-                <Icon name="message-circle" size={20} color={COLORS.success} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        </View>
-      </TouchableHighlight>
+  const filteredClients = useMemo(() => {
+    const query = String(searchQuery || '').trim().toLowerCase();
+    if (!query) return clientsWithStatus;
+    return clientsWithStatus.filter((client) =>
+      String(client?.clientName || '').toLowerCase().includes(query)
     );
-  };
+  }, [clientsWithStatus, searchQuery]);
 
-  const renderHiddenActions = ({ item }) => (
-    <View style={styles.rowBack}
-    >
-      <TouchableOpacity
-        style={[styles.backBtn, styles.btnEdit]}
-        onPress={() => {
-          closeAllOpenRows();
-          navigation.navigate('AddClient', { clientId: item.id });
-        }}
-      >
-        <Icon name="edit-2" size={24} color={COLORS.textOnPrimary} />
-      </TouchableOpacity>
+  const handleTogglePayment = useCallback(
+    async (client) => {
+      if (!client?.id) return;
+      try {
+        await togglePayment(client.id, currentMonthKey);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (_error) {
+        // store handles optimistic update/sync; keep silent failure here.
+      }
+    },
+    [currentMonthKey, togglePayment]
+  );
 
-      <TouchableOpacity
-        style={[styles.backBtn, item.isPaid ? styles.btnUndo : styles.btnPay]}
-        onPress={() => handleTogglePayment(item)}
-      >
-        <Icon name={item.isPaid ? 'rotate-ccw' : 'check'} size={24} color={COLORS.textOnPrimary} />
-      </TouchableOpacity>
-    </View>
+  const handleOpenWhatsApp = useCallback(async (client) => {
+    const phoneE164 =
+      client?.phoneE164 || buildPhoneE164FromRaw(client?.phoneRaw || client?.phone || '');
+    if (!phoneE164) return;
+    await openWhatsAppWithMessage({ phoneE164, message: '' });
+  }, []);
+
+  const handlePressClient = useCallback(
+    (client) => navigation.navigate('ClientDetail', { clientId: client.id }),
+    [navigation]
+  );
+
+  const keyExtractor = useCallback((item) => item.id, []);
+
+  const renderItem = useCallback(
+    ({ item }) => (
+      <ClientRow
+        item={item}
+        onPress={() => handlePressClient(item)}
+        onTogglePayment={() => handleTogglePayment(item)}
+        onOpenWhatsApp={() => handleOpenWhatsApp(item)}
+      />
+    ),
+    [handleOpenWhatsApp, handlePressClient, handleTogglePayment]
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}
-    >
-      <View style={styles.header}
-      >
-        <Text style={styles.title}
-        >
-          {clientTerm}s
-        </Text>
-        <View style={styles.searchBar}
-        >
-          <Icon name="search" size={20} color={COLORS.textSecondary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Buscar..."
-            placeholderTextColor={COLORS.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-      </View>
-
-      <SwipeListView
-        ref={swipeListViewRef}
-        data={filteredClients}
-        keyExtractor={(item, index) => item?.id || `client-${index}`}
-        renderItem={renderClientCard}
-        renderHiddenItem={renderHiddenActions}
-        leftOpenValue={75}
-        rightOpenValue={-75}
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+    <AppScreen style={styles.safeArea} contentContainerStyle={styles.content}>
+      <ScreenHeader
+        title="Clientes"
+        actionLabel="Novo"
+        onActionPress={() => navigation.navigate('AddClient')}
       />
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => navigation.navigate('AddClient')}
+      <Card style={styles.searchCard}>
+        <View style={styles.searchRow}>
+          <Icon name="search" size={18} color={COLORS.textSecondary} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={`Buscar ${String(clientTerm || 'cliente').toLowerCase()}...`}
+            placeholderTextColor={COLORS.textSecondary}
+            style={styles.searchInput}
+            accessibilityLabel="Buscar clientes"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+      </Card>
+
+      <ListContainer
+        loading={!hasDataError && isLoading}
+        error={hasDataError ? 'Não foi possível montar a lista agora.' : ''}
+        onRetry={hasDataError ? () => setSearchQuery('') : undefined}
+        isEmpty={!hasDataError && !isLoading && filteredClients.length === 0}
+        emptyTitle="Nenhum cliente encontrado"
+        emptyMessage={searchQuery ? 'Ajuste sua busca para encontrar um cliente.' : 'Cadastre seu primeiro cliente para começar.'}
+        emptyActionLabel="Cadastrar cliente"
+        onEmptyAction={() => navigation.navigate('AddClient')}
+        skeletonCount={5}
+        style={styles.stateBlock}
       >
-        <Icon name="plus" size={28} color={COLORS.textOnPrimary} />
-      </TouchableOpacity>
-    </SafeAreaView>
+        {!hasDataError && !isLoading && filteredClients.length > 0 ? (
+          <FlatList
+            data={filteredClients}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={styles.list}
+            initialNumToRender={8}
+            windowSize={8}
+            removeClippedSubviews
+          />
+        ) : null}
+      </ListContainer>
+    </AppScreen>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background },
-  header: { padding: 24, backgroundColor: COLORS.background },
-  title: { ...TYPOGRAPHY.display, color: COLORS.textPrimary, marginBottom: 16 },
-  searchBar: {
+  safeArea: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  content: {
+    paddingBottom: 12,
+  },
+  searchCard: {
+    marginBottom: 14,
+  },
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 50,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    gap: 8,
   },
-  searchInput: { ...TYPOGRAPHY.body, flex: 1, marginLeft: 12, color: COLORS.textPrimary },
-  listContent: { paddingHorizontal: 24, paddingBottom: 100 },
-  cardWrapper: { borderRadius: 16, ...SHADOWS.small },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+  searchInput: {
+    ...TYPOGRAPHY.body,
+    flex: 1,
+    color: COLORS.textPrimary,
+    paddingVertical: 0,
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  nameBlock: { flex: 1 },
-  avatar: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  avatarText: { ...TYPOGRAPHY.subtitle },
-  clientName: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
-  statusText: { ...TYPOGRAPHY.caption, marginTop: 2 },
-  textSuccess: { color: COLORS.success },
-  textWarning: { color: COLORS.warning },
-  valueText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
-  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  footerInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  footerText: { ...TYPOGRAPHY.caption, marginLeft: 6, color: COLORS.textSecondary },
-  rowBack: {
+  stateBlock: {
+    marginTop: 6,
+  },
+  list: {
+    gap: 12,
+    paddingBottom: 20,
+  },
+  itemPressed: {
+    opacity: 0.92,
+  },
+  clientCard: {
+    marginBottom: 2,
+  },
+  clientTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    flex: 1,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 16,
+    alignItems: 'flex-start',
+    gap: 12,
   },
-  backBtn: { width: 75, alignItems: 'center', justifyContent: 'center' },
-  btnEdit: { backgroundColor: COLORS.primary },
-  btnPay: { backgroundColor: COLORS.success },
-  btnUndo: { backgroundColor: COLORS.warning },
-  fab: {
-    position: 'absolute',
-    bottom: 30,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
+  nameBlock: {
+    flex: 1,
+  },
+  clientName: {
+    ...TYPOGRAPHY.subtitle,
+    color: COLORS.textPrimary,
+  },
+  clientSubtitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  amountBlock: {
+    alignItems: 'flex-end',
+  },
+  statusPill: {
+    marginTop: 6,
+  },
+  actionsRow: {
+    marginTop: 12,
+    flexDirection: 'row',
     alignItems: 'center',
-    ...SHADOWS.medium,
+    gap: 8,
+  },
+  primaryAction: {
+    flex: 1,
+    minHeight: 40,
+    paddingVertical: 8,
+  },
+  actionText: {
+    ...TYPOGRAPHY.caption,
+    fontWeight: '600',
+  },
+  messageButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  messageButtonDisabled: {
+    opacity: 0.45,
+  },
+  messageButtonPressed: {
+    opacity: 0.8,
   },
 });
 

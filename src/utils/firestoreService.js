@@ -17,6 +17,7 @@ import * as FileSystem from 'expo-file-system';
 
 import { endOfDay, getDateKey, getMonthKey, startOfDay } from './dateUtils';
 import { readEnv } from './env';
+import { RECEIVABLE_HISTORY_TYPES } from './receivableHistory';
 import {
   userAppointmentsCollection,
   userAppointmentDoc,
@@ -131,6 +132,31 @@ const buildReceivableFallbackPayload = (fallbackReceivable) => {
 
   if (fallbackReceivable.paid !== undefined) {
     payload.paid = Boolean(fallbackReceivable.paid);
+  }
+
+  return payload;
+};
+
+const buildReceivableHistoryEntry = ({
+  type,
+  at = new Date(),
+  reverted = false,
+  ...meta
+}) => {
+  const normalizedDate = resolveDateFromUnknown(at) || new Date();
+  const normalizedType =
+    type && Object.values(RECEIVABLE_HISTORY_TYPES).includes(type)
+      ? type
+      : RECEIVABLE_HISTORY_TYPES.EDITED;
+
+  const payload = {
+    type: normalizedType,
+    at: Timestamp.fromDate(normalizedDate),
+    ...meta,
+  };
+
+  if (reverted) {
+    payload.reverted = true;
   }
 
   return payload;
@@ -446,7 +472,7 @@ export const deleteExpenseFromFirestore = async ({ uid, expenseId }) => {
   await setDoc(expenseRef, { deletedAt: serverTimestamp() }, { merge: true });
 };
 
-export const upsertReceivableForMonth = async ({ uid, client, monthKey, paid }) => {
+export const upsertReceivableForMonth = async ({ uid, client, monthKey, paid, historyEntry }) => {
   if (!uid || !client?.id || !monthKey) return;
   const dueDate = buildDueDateForMonthKey(client.dueDay, monthKey);
   if (!dueDate) return;
@@ -459,12 +485,20 @@ export const upsertReceivableForMonth = async ({ uid, client, monthKey, paid }) 
     receivableRef,
     {
       ...payload,
+      ...(historyEntry
+        ? { history: arrayUnion(buildReceivableHistoryEntry(historyEntry)) }
+        : {}),
     },
     { merge: true }
   );
 };
 
-export const upsertReceivableForClient = async ({ uid, client, referenceDate = new Date() }) => {
+export const upsertReceivableForClient = async ({
+  uid,
+  client,
+  referenceDate = new Date(),
+  historyEntry,
+}) => {
   if (!uid || !client?.id) return;
   const monthKey = resolveReceivableMonthKeyForClient(client, referenceDate);
   if (!monthKey) return;
@@ -481,6 +515,9 @@ export const upsertReceivableForClient = async ({ uid, client, referenceDate = n
     receivableRef,
     {
       ...payload,
+      ...(historyEntry
+        ? { history: arrayUnion(buildReceivableHistoryEntry(historyEntry)) }
+        : {}),
     },
     { merge: true }
   );
@@ -603,6 +640,12 @@ export const markReceivablePaid = async ({
     {
       paid: Boolean(paid),
       paidAt: paid ? serverTimestamp() : null,
+      history: arrayUnion(
+        buildReceivableHistoryEntry({
+          type: RECEIVABLE_HISTORY_TYPES.PAID,
+          method: paid ? 'toggle' : 'toggle-revert',
+        })
+      ),
       updatedAt: serverTimestamp(),
     },
     { merge: true }
@@ -628,6 +671,12 @@ export const markReceivablesPaidByIds = async ({ uid, receivableIds }) => {
         {
           paid: true,
           paidAt: serverTimestamp(),
+          history: arrayUnion(
+            buildReceivableHistoryEntry({
+              type: RECEIVABLE_HISTORY_TYPES.PAID,
+              method: 'batch',
+            })
+          ),
           updatedAt: serverTimestamp(),
         },
         { merge: true }
@@ -726,6 +775,14 @@ export const registerReceivableChargeSent = async ({
       paid: fallbackPayload.paid !== undefined ? fallbackPayload.paid : false,
       lastChargeSentAt: serverTimestamp(),
       chargeHistory: arrayUnion(chargeEntry),
+      history: arrayUnion(
+        buildReceivableHistoryEntry({
+          type: RECEIVABLE_HISTORY_TYPES.CHARGE_SENT,
+          template: usedTemplate || '',
+          channel: 'whatsapp',
+          ...(userAgent ? { userAgent } : {}),
+        })
+      ),
       updatedAt: serverTimestamp(),
     },
     { merge: true }
@@ -746,9 +803,126 @@ export const markReceivableAsPaid = async ({
     paid: true,
     paidAt: serverTimestamp(),
     paymentMethod: method || '',
+    history: arrayUnion(
+      buildReceivableHistoryEntry({
+        type: RECEIVABLE_HISTORY_TYPES.PAID,
+        method: method || 'manual',
+      })
+    ),
     updatedAt: serverTimestamp(),
   };
   await setDoc(receivableRef, payload, { merge: true });
+};
+
+export const rescheduleReceivableDueDate = async ({
+  uid,
+  receivableId,
+  dueDate,
+  previousDueDate,
+}) => {
+  if (!uid || !receivableId || !(dueDate instanceof Date) || Number.isNaN(dueDate.getTime())) return;
+
+  const normalizedDueDate = endOfDay(new Date(dueDate));
+  const normalizedPreviousDate =
+    previousDueDate instanceof Date && !Number.isNaN(previousDueDate.getTime())
+      ? endOfDay(new Date(previousDueDate))
+      : null;
+  await setDoc(
+    userReceivableDoc(uid, receivableId),
+    {
+      dueDay: normalizedDueDate.getDate(),
+      dueDateKey: getDateKey(normalizedDueDate),
+      monthKey: getMonthKey(normalizedDueDate),
+      dueDate: Timestamp.fromDate(normalizedDueDate),
+      history: arrayUnion(
+        buildReceivableHistoryEntry({
+          type: RECEIVABLE_HISTORY_TYPES.RESCHEDULED,
+          fromDueDateKey: normalizedPreviousDate ? getDateKey(normalizedPreviousDate) : null,
+          toDueDateKey: getDateKey(normalizedDueDate),
+        })
+      ),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+};
+
+export const markReceivableAsUnpaid = async ({ uid, receivableId }) => {
+  if (!uid || !receivableId) return;
+  await setDoc(
+    userReceivableDoc(uid, receivableId),
+    {
+      paid: false,
+      paidAt: null,
+      paymentMethod: '',
+      history: arrayUnion(
+        buildReceivableHistoryEntry({
+          type: RECEIVABLE_HISTORY_TYPES.PAID,
+          reverted: true,
+        })
+      ),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+};
+
+export const markReceivablesUnpaidByIds = async ({ uid, receivableIds }) => {
+  if (!uid || !Array.isArray(receivableIds) || receivableIds.length === 0) return;
+  const uniqueIds = Array.from(new Set(receivableIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return;
+
+  const BATCH_LIMIT = 450;
+  for (let i = 0; i < uniqueIds.length; i += BATCH_LIMIT) {
+    const slice = uniqueIds.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+    slice.forEach((id) => {
+      batch.set(
+        userReceivableDoc(uid, id),
+        {
+          paid: false,
+          paidAt: null,
+          paymentMethod: '',
+          history: arrayUnion(
+            buildReceivableHistoryEntry({
+              type: RECEIVABLE_HISTORY_TYPES.PAID,
+              reverted: true,
+            })
+          ),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+    await batch.commit();
+  }
+};
+
+export const undoReceivableReschedule = async ({
+  uid,
+  receivableId,
+  previousDueDate,
+}) => {
+  if (!uid || !receivableId || !(previousDueDate instanceof Date) || Number.isNaN(previousDueDate.getTime())) return;
+  const normalizedDate = endOfDay(new Date(previousDueDate));
+  await setDoc(
+    userReceivableDoc(uid, receivableId),
+    {
+      dueDay: normalizedDate.getDate(),
+      dueDateKey: getDateKey(normalizedDate),
+      monthKey: getMonthKey(normalizedDate),
+      dueDate: Timestamp.fromDate(normalizedDate),
+      history: arrayUnion(
+        buildReceivableHistoryEntry({
+          type: RECEIVABLE_HISTORY_TYPES.RESCHEDULED,
+          reverted: true,
+          toDueDateKey: getDateKey(normalizedDate),
+        })
+      ),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 };
 
 export const fetchReceivablesForRange = async ({ uid, startDate, endDate }) => {

@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import { Feather as Icon } from '@expo/vector-icons';
+import { AppScreen, Button, Card, ScreenHeader } from '../components';
 import { useClientStore } from '../store/useClientStore';
-import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { COLORS as THEME, TYPOGRAPHY } from '../theme/legacy';
+import { planCopy } from '../utils/uiCopy';
 
 const COLORS = {
   background: THEME.background,
@@ -15,136 +16,103 @@ const COLORS = {
   textOnPrimary: THEME.textOnPrimary,
 };
 
-const FEATURES = [
-  'Clientes ilimitados e histórico completo',
-  'Relatórios financeiros com exportação',
-  'Lembretes automáticos de agenda e pagamento',
-  'Suporte prioritário e roadmap colaborativo',
-];
-
 const PlanDetailsScreen = ({ navigation }) => {
   const planTier = useClientStore((state) => state.planTier);
   const setPlanTier = useClientStore((state) => state.setPlanTier);
 
   const handleUpgrade = () => {
     setPlanTier('pro');
-    Alert.alert('Plano atualizado', 'Você agora faz parte do Wallet Pro!', [
+    Alert.alert(planCopy.upgradeSuccessTitle, planCopy.upgradeSuccessMessage, [
       {
-        text: 'Entendi',
+        text: planCopy.upgradeSuccessAction,
         onPress: () => navigation.goBack(),
       },
     ]);
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Wallet Pro</Text>
-        <Text style={styles.subtitle}>Tudo o que você precisa para crescer sem limites.</Text>
+    <AppScreen scroll style={styles.safeArea} contentContainerStyle={styles.container}>
+      <ScreenHeader title={planCopy.title} navigation={navigation} />
+      <Text style={styles.subtitle}>{planCopy.subtitle}</Text>
 
-        <View style={styles.priceCard}>
+        <Card style={styles.priceCard}>
           <Text style={styles.price}>R$ 24,90</Text>
-          <Text style={styles.priceSuffix}>/mês</Text>
-          <Text style={styles.priceInfo}>Cancele quando quiser</Text>
-        </View>
+          <Text style={styles.priceSuffix}>{planCopy.priceSuffix}</Text>
+          <Text style={styles.priceInfo}>{planCopy.cancelAnytime}</Text>
+        </Card>
 
-        <View style={styles.featureCard}>
-          <Text style={styles.featureTitle}>Por que migrar para o Pro?</Text>
-          {FEATURES.map((feature) => (
+        <Card style={styles.featureCard}>
+          <Text style={styles.featureTitle}>{planCopy.whyUpgrade}</Text>
+          {planCopy.features.map((feature) => (
             <View key={feature} style={styles.featureRow}>
               <Icon name="check" size={18} color={COLORS.highlight} />
               <Text style={styles.featureText}>{feature}</Text>
             </View>
           ))}
-        </View>
+        </Card>
 
-        <View style={styles.supportCard}>
-          <Text style={styles.supportTitle}>Suporte dedicado</Text>
-          <Text style={styles.supportText}>
-            Conte com atendimento prioritário e materiais exclusivos para organizar sua rotina e
-            fortalecer o relacionamento com seus clientes.
-          </Text>
-        </View>
+        <Card style={styles.supportCard}>
+          <Text style={styles.supportTitle}>{planCopy.supportTitle}</Text>
+          <Text style={styles.supportText}>{planCopy.supportText}</Text>
+        </Card>
 
-        <TouchableOpacity
-          style={[styles.ctaButton, planTier !== 'free' && styles.ctaButtonDisabled]}
+        <Button
+          label={planTier === 'free' ? planCopy.upgradeCta : planCopy.activeCta}
+          variant={planTier === 'free' ? 'primary' : 'secondary'}
+          style={styles.ctaButton}
+          textStyle={styles.ctaButtonText}
           onPress={handleUpgrade}
           disabled={planTier !== 'free'}
-        >
-          <Text
-            style={[styles.ctaButtonText, planTier !== 'free' && styles.ctaButtonTextDisabled]}
-          >
-            {planTier === 'free' ? 'Quero migrar para o Pro' : 'Plano Pro ativado'}
-          </Text>
-        </TouchableOpacity>
+          accessibilityLabel={planTier === 'free' ? planCopy.upgradeCta : planCopy.activeCta}
+        />
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.secondaryButtonText}>Voltar</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+        <Button
+          label={planCopy.back}
+          variant="secondary"
+          style={styles.secondaryButton}
+          textStyle={styles.secondaryButtonText}
+          onPress={() => navigation.goBack()}
+          accessibilityLabel={planCopy.back}
+        />
+    </AppScreen>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  container: { padding: 24, paddingBottom: 60 },
-  title: { ...TYPOGRAPHY.display, color: COLORS.text },
-  subtitle: { ...TYPOGRAPHY.body, color: COLORS.accent, marginTop: 8, marginBottom: 20 },
+  container: { paddingBottom: 60 },
+  subtitle: { ...TYPOGRAPHY.body, color: COLORS.accent, marginTop: 6, marginBottom: 20 },
   priceCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
     paddingVertical: 20,
     paddingHorizontal: 18,
     alignItems: 'center',
     marginBottom: 24,
-    borderWidth: 1,
-    borderColor: COLORS.border,
   },
   price: { ...TYPOGRAPHY.hero, color: COLORS.text },
   priceSuffix: { ...TYPOGRAPHY.subtitle, color: COLORS.accent },
   priceInfo: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginTop: 6 },
   featureCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: COLORS.border,
     padding: 18,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 1,
   },
   featureTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.text, marginBottom: 12 },
   featureRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   featureText: { marginLeft: 12, color: COLORS.accent, ...TYPOGRAPHY.body, flexShrink: 1 },
   supportCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 18,
     padding: 18,
     marginBottom: 30,
-    borderWidth: 1,
-    borderColor: COLORS.border,
   },
   supportTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.text, marginBottom: 8 },
   supportText: { ...TYPOGRAPHY.body, color: COLORS.accent, lineHeight: 20 },
   ctaButton: {
-    backgroundColor: COLORS.highlight,
-    borderRadius: 18,
-    paddingVertical: 16,
-    alignItems: 'center',
+    minHeight: 52,
     marginBottom: 14,
   },
-  ctaButtonDisabled: { backgroundColor: 'rgba(26,32,44,0.2)' },
-  ctaButtonText: { ...TYPOGRAPHY.button, color: COLORS.textOnPrimary },
-  ctaButtonTextDisabled: { color: 'rgba(255,255,255,0.7)' },
+  ctaButtonText: { ...TYPOGRAPHY.button },
   secondaryButton: {
-    alignItems: 'center',
-    paddingVertical: 14,
+    minHeight: 48,
   },
-  secondaryButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.accent },
+  secondaryButtonText: { ...TYPOGRAPHY.buttonSmall },
 });
 
 export default PlanDetailsScreen;

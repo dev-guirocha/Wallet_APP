@@ -30,7 +30,7 @@ import {
 
 import { auth, isFirebaseConfigured } from '../utils/firebase';
 import { getRememberMePreference, setRememberMePreference } from '../utils/authStorage';
-import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { COLORS as THEME, TYPOGRAPHY } from '../theme/legacy';
 import { readEnv } from '../utils/env';
 
 WebBrowser.maybeCompleteAuthSession();

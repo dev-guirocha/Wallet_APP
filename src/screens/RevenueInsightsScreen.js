@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Feather as Icon } from '@expo/vector-icons';
 
+import { AppScreen, Card, EmptyState, ScreenHeader } from '../components';
 import { formatCurrency, getMonthKey } from '../utils/dateUtils';
 import { useClientStore } from '../store/useClientStore';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, TYPOGRAPHY } from '../theme/legacy';
 
 const CHART_COLORS = ['#3182CE', '#38A169', '#D69E2E', '#E53E3E', '#805AD5', '#D53F8C', '#319795'];
 
@@ -132,123 +132,114 @@ const RevenueInsightsScreen = ({ activeMonth, navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>Financeiro</Text>
-          <TouchableOpacity
-            style={styles.addExpenseBtn}
-            onPress={() => navigation.navigate('AddExpense')}
-          >
-            <Icon name="minus-circle" size={16} color={COLORS.danger} style={styles.addExpenseIcon} />
-            <Text style={styles.addExpenseText}>Lancar Despesa</Text>
-          </TouchableOpacity>
+    <AppScreen scroll style={styles.safeArea} contentContainerStyle={styles.container}>
+      <ScreenHeader title="Financeiro" navigation={navigation} />
+
+      <TouchableOpacity
+        style={styles.addExpenseBtn}
+        onPress={() => navigation.navigate('AddExpense')}
+      >
+        <Icon name="minus-circle" size={16} color={COLORS.danger} style={styles.addExpenseIcon} />
+        <Text style={styles.addExpenseText}>Lançar despesa</Text>
+      </TouchableOpacity>
+
+      <Card>
+        <Text style={styles.cardHeader}>Resultado líquido</Text>
+        <View style={styles.netBlock}>
+          <Text style={[styles.netValue, { color: netIncome >= 0 ? COLORS.success : COLORS.danger }]}>
+            {formatCurrency(netIncome)}
+          </Text>
+          <Text style={styles.netLabel}>Lucro real no mês</Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardHeader}>Resultado Liquido</Text>
-          <View style={styles.netBlock}>
-            <Text style={[styles.netValue, { color: netIncome >= 0 ? COLORS.success : COLORS.danger }]}>
-              {formatCurrency(netIncome)}
+        <View style={styles.balanceRow}>
+          <View style={styles.balanceItem}>
+            <Text style={styles.balanceLabel}>Entradas</Text>
+            <Text style={[styles.balanceValue, { color: COLORS.success }]}>
+              {formatCurrency(incomeData.received)}
             </Text>
-            <Text style={styles.netLabel}>Lucro real no mes</Text>
           </View>
-
-          <View style={styles.balanceRow}>
-            <View style={styles.balanceItem}>
-              <Text style={styles.balanceLabel}>Entradas</Text>
-              <Text style={[styles.balanceValue, { color: COLORS.success }]}>
-                {formatCurrency(incomeData.received)}
-              </Text>
-            </View>
-            <View style={styles.dividerVertical} />
-            <View style={styles.balanceItem}>
-              <Text style={styles.balanceLabel}>Saidas</Text>
-              <Text style={[styles.balanceValue, { color: COLORS.danger }]}>
-                {formatCurrency(expenseData.total)}
-              </Text>
-            </View>
+          <View style={styles.dividerVertical} />
+          <View style={styles.balanceItem}>
+            <Text style={styles.balanceLabel}>Saídas</Text>
+            <Text style={[styles.balanceValue, { color: COLORS.danger }]}>
+              {formatCurrency(expenseData.total)}
+            </Text>
           </View>
         </View>
+      </Card>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Historico de Despesas</Text>
-        </View>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Histórico de despesas</Text>
+      </View>
 
-        {expenseData.list.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>Nenhuma despesa lancada neste mes.</Text>
-          </View>
-        ) : (
-          expenseData.list.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.expenseRow}
-              onLongPress={() => handleDeleteExpense(item.id)}
-            >
-              <View style={styles.expenseIcon}>
-                <Icon name="dollar-sign" size={16} color={COLORS.danger} />
-              </View>
-              <View style={styles.expenseInfo}>
-                <Text style={styles.expenseTitle}>{item.title}</Text>
-                <Text style={styles.expenseCategory}>{item.categoryLabel || item.category || 'Outros'}</Text>
-              </View>
-              <Text style={styles.expenseValue}>- {formatCurrency(item.value)}</Text>
-            </TouchableOpacity>
-          ))
-        )}
+      {expenseData.list.length === 0 ? (
+        <EmptyState
+          title="Sem despesas no mês"
+          message="Nenhuma despesa lançada neste mês."
+          style={styles.emptyCard}
+        />
+      ) : (
+        expenseData.list.map((item) => (
+          <TouchableOpacity
+            key={item.id}
+            style={styles.expenseRow}
+            onLongPress={() => handleDeleteExpense(item.id)}
+          >
+            <View style={styles.expenseIcon}>
+              <Icon name="dollar-sign" size={16} color={COLORS.danger} />
+            </View>
+            <View style={styles.expenseInfo}>
+              <Text style={styles.expenseTitle}>{item.title}</Text>
+              <Text style={styles.expenseCategory}>{item.categoryLabel || item.category || 'Outros'}</Text>
+            </View>
+            <Text style={styles.expenseValue}>- {formatCurrency(item.value)}</Text>
+          </TouchableOpacity>
+        ))
+      )}
 
-        <View style={[styles.card, styles.chartCard]}>
-          <Text style={styles.cardHeader}>Receitas por Local</Text>
-          <View style={styles.chartContainer}>
-            {incomeData.pieSegments.length > 0 ? (
-              <PieChart segments={incomeData.pieSegments} />
-            ) : (
-              <Text style={styles.emptyText}>Sem dados de receita.</Text>
-            )}
-          </View>
+      <Card style={styles.chartCard}>
+        <Text style={styles.cardHeader}>Receitas por local</Text>
+        <View style={styles.chartContainer}>
           {incomeData.pieSegments.length > 0 ? (
-            <View style={styles.legendList}>
-              {incomeData.pieSegments.map((segment) => (
-                <View key={segment.id} style={styles.legendRow}>
-                  <View style={[styles.legendDot, { backgroundColor: segment.color }]} />
-                  <Text style={styles.legendLabel} numberOfLines={1}>
-                    {segment.label}
-                  </Text>
-                  <Text style={styles.legendValue}>{formatCurrency(segment.value)}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
+            <PieChart segments={incomeData.pieSegments} />
+          ) : (
+            <Text style={styles.emptyText}>Sem dados de receita.</Text>
+          )}
         </View>
-      </ScrollView>
-    </SafeAreaView>
+        {incomeData.pieSegments.length > 0 ? (
+          <View style={styles.legendList}>
+            {incomeData.pieSegments.map((segment) => (
+              <View key={segment.id} style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: segment.color }]} />
+                <Text style={styles.legendLabel} numberOfLines={1}>
+                  {segment.label}
+                </Text>
+                <Text style={styles.legendValue}>{formatCurrency(segment.value)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </Card>
+    </AppScreen>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  container: { padding: 24, paddingBottom: 60 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  headerTitle: { ...TYPOGRAPHY.display, color: COLORS.textPrimary },
+  container: { paddingBottom: 60 },
   addExpenseBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     backgroundColor: 'rgba(229,62,62,0.12)',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
+    marginBottom: 12,
   },
   addExpenseIcon: { marginRight: 6 },
   addExpenseText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.danger },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    ...SHADOWS.small,
-  },
   cardHeader: { ...TYPOGRAPHY.overline, color: COLORS.textSecondary, marginBottom: 12 },
   netBlock: { alignItems: 'center', marginVertical: 10 },
   netValue: { ...TYPOGRAPHY.hero },
@@ -275,7 +266,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
-    ...SHADOWS.small,
   },
   expenseIcon: {
     width: 32,
@@ -289,15 +279,7 @@ const styles = StyleSheet.create({
   expenseTitle: { ...TYPOGRAPHY.bodyMedium, color: COLORS.textPrimary },
   expenseCategory: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
   expenseValue: { ...TYPOGRAPHY.bodyMedium, color: COLORS.danger },
-  emptyCard: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 16,
-  },
+  emptyCard: { marginTop: 4 },
   emptyText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, textAlign: 'center' },
   chartCard: { marginTop: 24 },
   chartContainer: { alignItems: 'center', marginTop: 10 },

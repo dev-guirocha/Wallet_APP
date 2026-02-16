@@ -53,9 +53,11 @@ import {
   userReceivablesCollection,
 } from './src/utils/firestoreRefs';
 
-const APP_STATE_KEY = '@WalletA:appState';
+const APP_STATE_KEY = '@Flowdesk:appState';
+const LEGACY_APP_STATE_KEY = '@WalletA:appState';
 const PREMIUM_EMAIL = 'dev.guirocha@gmail.com';
-const RECEIVABLE_CLEANUP_KEY = '@WalletA:cleanupReceivables:v1';
+const RECEIVABLE_CLEANUP_KEY = '@Flowdesk:cleanupReceivables:v1';
+const LEGACY_RECEIVABLE_CLEANUP_KEY = '@WalletA:cleanupReceivables:v1';
 
 const buildUpcomingAppointmentsForWidget = ({ clients = [], overrides = {} }) => {
   const now = new Date();
@@ -130,7 +132,13 @@ const App = () => {
   useEffect(() => {
     const initApp = async () => {
       try {
-        const savedAppState = await AsyncStorage.getItem(APP_STATE_KEY);
+        let savedAppState = await AsyncStorage.getItem(APP_STATE_KEY);
+        if (!savedAppState) {
+          savedAppState = await AsyncStorage.getItem(LEGACY_APP_STATE_KEY);
+          if (savedAppState) {
+            await AsyncStorage.setItem(APP_STATE_KEY, savedAppState);
+          }
+        }
         if (savedAppState === 'profession') {
           setAppState('profile');
         } else {
@@ -381,7 +389,10 @@ const App = () => {
         });
 
         const cleanupKey = `${RECEIVABLE_CLEANUP_KEY}:${uid}`;
-        const hasCleaned = await AsyncStorage.getItem(cleanupKey);
+        const legacyCleanupKey = `${LEGACY_RECEIVABLE_CLEANUP_KEY}:${uid}`;
+        const hasCleaned =
+          (await AsyncStorage.getItem(cleanupKey)) ||
+          (await AsyncStorage.getItem(legacyCleanupKey));
         if (!hasCleaned) {
           cleanupDuplicateReceivables({ uid })
             .then(() => AsyncStorage.setItem(cleanupKey, '1'))
@@ -631,7 +642,7 @@ const App = () => {
     }
 
     const linking = {
-      prefixes: ['walletapp://', 'myapp://'],
+      prefixes: ['flowdesk://', 'myapp://'],
       config: {
         screens: {
           MainTabs: {

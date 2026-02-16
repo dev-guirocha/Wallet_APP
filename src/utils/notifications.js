@@ -7,7 +7,7 @@ import { getAppointmentsForDate } from './schedule';
 const APPOINTMENT_LOOKAHEAD_DAYS = 14;
 const PAYMENT_REMINDER_HOUR = 9;
 const PAYMENT_REMINDER_MINUTE = 0;
-const DEFAULT_CHANNEL_ID = 'wallet-reminders';
+const DEFAULT_CHANNEL_ID = 'flowdesk-reminders';
 
 let notificationsConfigured = false;
 

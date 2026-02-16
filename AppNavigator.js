@@ -3,7 +3,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather as Icon, MaterialIcons } from '@expo/vector-icons';
 import ClientDetailScreen from './src/screens/ClientDetailScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import AgendaScreen from './src/screens/AgendaScreen';
@@ -18,6 +18,8 @@ import EditProfileScreen from './src/screens/EditProfileScreen';
 import ChangePhotoScreen from './src/screens/ChangePhotoScreen';
 import PrivacyScreen from './src/screens/PrivacyScreen';
 import ChargesTodayScreen from './src/screens/ChargesTodayScreen';
+import ChargesScreen from './src/screens/ChargesScreen';
+import FeedScreen from './src/screens/FeedScreen';
 import MessageTemplatesScreen from './src/screens/MessageTemplatesScreen';
 import { COLORS, TYPOGRAPHY } from './src/constants/theme';
 
@@ -29,21 +31,9 @@ const TabNavigator = () => {
   return (
     <Tab.Navigator
       detachInactiveScreens
-      screenOptions={({ route }) => ({
+      screenOptions={{
         headerShown: false,
-        tabBarIcon: ({ color, size, focused }) => {
-          let iconName;
-          if (route.name === 'Início') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Gráficos') {
-            iconName = focused ? 'pie-chart' : 'pie-chart-outline';
-          } else if (route.name === 'Agenda') {
-            iconName = focused ? 'calendar' : 'calendar-outline';
-          } else if (route.name === 'ClientesTab') {
-            iconName = focused ? 'people' : 'people-outline';
-          }
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
+        tabBarShowIcon: true,
         tabBarActiveTintColor: COLORS.textPrimary,
         tabBarInactiveTintColor: TAB_INACTIVE,
         tabBarShowLabel: true, 
@@ -59,21 +49,51 @@ const TabNavigator = () => {
           ...TYPOGRAPHY.caption,
           paddingBottom: 10, 
         },
-      })}
+      }}
     >
-      <Tab.Screen name="Início">
+      <Tab.Screen
+        name="Início"
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="home" size={size || 22} color={color || TAB_INACTIVE} />
+          ),
+        }}
+      >
         {props => <HomeScreen {...props} />}
       </Tab.Screen>
 
-      <Tab.Screen name="Gráficos" options={{ title: 'Gráficos' }}>
+      <Tab.Screen
+        name="Gráficos"
+        options={{
+          title: 'Gráficos',
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="bar-chart-2" size={size || 22} color={color || TAB_INACTIVE} />
+          ),
+        }}
+      >
         {props => <ReportsScreen {...props} />}
       </Tab.Screen>
 
-      <Tab.Screen name="Agenda">
+      <Tab.Screen
+        name="Agenda"
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="calendar" size={size || 22} color={color || TAB_INACTIVE} />
+          ),
+        }}
+      >
         {props => <AgendaScreen {...props} />}
       </Tab.Screen>
 
-      <Tab.Screen name="ClientesTab" options={{ title: 'Clientes' }}>
+      <Tab.Screen
+        name="ClientesTab"
+        options={{
+          title: 'Clientes',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialIcons name="groups" size={size || 22} color={color || TAB_INACTIVE} />
+          ),
+        }}
+      >
         {props => <ClientsScreen {...props} />}
       </Tab.Screen>
 
@@ -121,9 +141,15 @@ const AppNavigator = ({ onSignOut }) => {
       <Stack.Screen name="CobrancasHoje">
         {props => <ChargesTodayScreen {...props} />}
       </Stack.Screen>
+      <Stack.Screen name="Cobrancas">
+        {props => <ChargesScreen {...props} />}
+      </Stack.Screen>
+      <Stack.Screen name="FeedScreen">
+        {props => <FeedScreen {...props} />}
+      </Stack.Screen>
       <Stack.Screen
         name="PlanDetails"
-        options={{ presentation: 'modal', title: 'Wallet Pro' }}
+        options={{ presentation: 'modal', title: 'Flowdesk Pro' }}
       >
         {props => (
           <PlanDetailsScreen

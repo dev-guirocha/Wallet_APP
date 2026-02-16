@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Swiper from 'react-native-swiper';
 import { Feather } from '@expo/vector-icons';
-import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { COLORS as THEME, TYPOGRAPHY } from '../theme/legacy';
 import { useClientStore } from '../store/useClientStore';
 import {
   requestNotificationPermissionAsync,
@@ -24,7 +24,7 @@ const onboardingData = [
   {
     iconName: 'pie-chart',
     title: 'Clareza e Controle',
-    description: 'Gerencie seus recebimentos, despesas e clientes em um unico lugar.',
+    description: 'Tenha recebimentos, despesas e clientes em um workspace financeiro inteligente.',
   },
   {
     iconName: 'calendar',
@@ -113,7 +113,7 @@ const OnboardingScreen = ({
         const canAsk = await shouldAskForNotificationPermission();
         setLocalCanAskNotifications(Boolean(canAsk));
       }
-    } catch (error) {
+    } catch (_error) {
       setLocalNotificationsEnabled(false);
       setNotificationsEnabled(false);
     }
@@ -121,6 +121,10 @@ const OnboardingScreen = ({
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.brandBlock}>
+        <Text style={styles.brandTitle}>Flowdesk</Text>
+        <Text style={styles.brandSubtitle}>Intelligent financial workspace for service professionals</Text>
+      </View>
       <Swiper
         ref={swiperRef}
         style={styles.wrapper}
@@ -132,44 +136,46 @@ const OnboardingScreen = ({
       >
         {onboardingData.map((item, index) => (
           <View key={`${item.title}-${index}`} style={styles.slide}>
-            <Feather name={item.iconName} size={96} color={COLORS.primary} style={styles.icon} />
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.description}>{item.description}</Text>
+            <View style={styles.slideCard}>
+              <Feather name={item.iconName} size={72} color={COLORS.primary} style={styles.icon} />
+              <Text style={styles.title}>{item.title}</Text>
+              <Text style={styles.description}>{item.description}</Text>
 
-            {item.type === 'notifications' ? (
-              <View style={styles.permissionCard}>
-                <View style={styles.permissionHeader}>
-                  <Feather name="bell" size={24} color={COLORS.text} />
-                  <View style={styles.permissionTextBlock}>
-                    <Text style={styles.permissionTitle}>Receber lembretes</Text>
-                    <Text style={styles.permissionSubtitle}>
-                      Ative notificacoes para cobranca e compromissos automaticos.
-                    </Text>
+              {item.type === 'notifications' ? (
+                <View style={styles.permissionCard}>
+                  <View style={styles.permissionHeader}>
+                    <Feather name="bell" size={24} color={COLORS.text} />
+                    <View style={styles.permissionTextBlock}>
+                      <Text style={styles.permissionTitle}>Receber lembretes</Text>
+                      <Text style={styles.permissionSubtitle}>
+                        Ative notificacoes para cobranca e compromissos automaticos.
+                      </Text>
+                    </View>
                   </View>
+                  {localNotificationsEnabled ? (
+                    <View style={styles.permissionStatus}>
+                      <Feather name="check" size={16} color={COLORS.primary} />
+                      <Text style={styles.permissionStatusText}>Notificacoes ativadas</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[
+                        styles.permissionButton,
+                        !localCanAskNotifications && styles.permissionButtonDisabled,
+                      ]}
+                      onPress={handleNotificationsPress}
+                      disabled={!localCanAskNotifications}
+                    >
+                      <Text style={styles.permissionButtonText}>
+                        {localCanAskNotifications
+                          ? 'Ativar lembretes'
+                          : 'Verifique as configuracoes do sistema'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
-                {localNotificationsEnabled ? (
-                  <View style={styles.permissionStatus}>
-                    <Feather name="check" size={16} color={COLORS.primary} />
-                    <Text style={styles.permissionStatusText}>Notificacoes ativadas</Text>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[
-                      styles.permissionButton,
-                      !localCanAskNotifications && styles.permissionButtonDisabled,
-                    ]}
-                    onPress={handleNotificationsPress}
-                    disabled={!localCanAskNotifications}
-                  >
-                    <Text style={styles.permissionButtonText}>
-                      {localCanAskNotifications
-                        ? 'Ativar lembretes'
-                        : 'Verifique as configuracoes do sistema'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ) : null}
+              ) : null}
+            </View>
           </View>
         ))}
       </Swiper>
@@ -190,15 +196,44 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  wrapper: {},
+  wrapper: {
+    marginTop: 8,
+  },
+  brandBlock: {
+    paddingHorizontal: 30,
+    paddingTop: 20,
+    alignItems: 'center',
+  },
+  brandTitle: {
+    ...TYPOGRAPHY.title,
+    color: COLORS.text,
+    textAlign: 'center',
+  },
+  brandSubtitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.secondary,
+    marginTop: 2,
+    textAlign: 'center',
+  },
   slide: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    paddingHorizontal: 24,
+    paddingBottom: 18,
+  },
+  slideCard: {
+    width: '100%',
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: 'center',
   },
   icon: {
-    marginBottom: 40,
+    marginBottom: 20,
   },
   title: {
     ...TYPOGRAPHY.title,
@@ -214,11 +249,11 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: 30,
-    paddingTop: 0,
+    paddingTop: 4,
   },
   permissionCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
+    backgroundColor: COLORS.background,
+    borderRadius: 16,
     padding: 18,
     marginTop: 24,
     borderWidth: 1,

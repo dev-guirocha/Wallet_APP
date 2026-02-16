@@ -73,7 +73,7 @@ export const generateAndShareReceipt = async ({
             </div>
 
             <div class="footer">
-              Este recibo foi gerado automaticamente pelo aplicativo Wallet App.
+              Este recibo foi gerado automaticamente pelo aplicativo Flowdesk.
             </div>
           </div>
         </body>

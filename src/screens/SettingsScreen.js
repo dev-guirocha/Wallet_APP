@@ -7,22 +7,22 @@ import {
   StyleSheet,
   TouchableOpacity,
   Switch,
-  ScrollView,
   Platform,
   ToastAndroid,
   Alert,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { AppScreen, Button, Card, ScreenHeader } from '../components';
 import { useClientStore } from '../store/useClientStore';
 import {
   cancelAllNotificationsAsync,
   getNotificationPermissionStatus,
   requestNotificationPermissionAsync,
 } from '../utils/notifications';
-import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { COLORS as THEME, TYPOGRAPHY } from '../theme/legacy';
+import { settingsCopy } from '../utils/uiCopy';
 
 const COLORS = {
   background: THEME.background,
@@ -51,8 +51,8 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [canAskNotifications, setCanAskNotifications] = useState(true);
   const renderPlanLabel = () => {
-    if (planTier === 'premium' || planTier === 'pro') return 'Plano Pro';
-    return 'Plano Gratuito';
+    if (planTier === 'premium' || planTier === 'pro') return settingsCopy.proPlan;
+    return settingsCopy.freePlan;
   };
 
   useFocusEffect(
@@ -95,7 +95,7 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
     if (!nextValue) {
       setNotificationsEnabled(false);
       await cancelAllNotificationsAsync();
-      notify('Notificações desativadas.');
+      notify(settingsCopy.notificationsDisabled);
       return;
     }
 
@@ -107,21 +107,14 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
 
     notify(
       granted
-        ? 'Notificações ativadas.'
-        : 'Não foi possível ativar as notificações. Verifique as permissões do sistema.',
+        ? settingsCopy.notificationsEnabled
+        : settingsCopy.notificationsEnableError,
     );
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.topBar}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.topBarButton}>
-            <Icon name="arrow-left" size={20} color={COLORS.text} />
-          </TouchableOpacity>
-          <Text style={styles.topBarTitle}>Configurações</Text>
-          <View style={styles.topBarSpacer} />
-        </View>
+    <AppScreen scroll style={styles.safeArea} contentContainerStyle={styles.container}>
+      <ScreenHeader title={settingsCopy.title} navigation={navigation} />
         <View style={styles.header}>
           <View style={styles.avatarWrapper}>
             {userPhotoURL ? (
@@ -134,17 +127,17 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
             <Text style={styles.profileName}>
               {userName ? `Olá, ${userName}` : 'Olá!'}
             </Text>
-            <Text style={styles.profileSubtitle}>Personalize sua experiência</Text>
+            <Text style={styles.profileSubtitle}>{settingsCopy.profileSubtitle}</Text>
           </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Notificações</Text>
+        <Card style={styles.card}>
+          <Text style={styles.cardTitle}>{settingsCopy.notificationsTitle}</Text>
           <View style={styles.rowBetween}>
             <View style={styles.row}
             >
               <Icon name="bell" size={20} color={COLORS.text} />
-              <Text style={styles.rowLabel}>Lembretes do aplicativo</Text>
+              <Text style={styles.rowLabel}>{settingsCopy.notificationsLabel}</Text>
             </View>
             <View>
               <Switch
@@ -153,16 +146,17 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
                 disabled={!permissionGranted && !canAskNotifications}
                 trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
                 thumbColor={notificationsEnabled ? COLORS.surface : '#f4f3f4'}
+                accessibilityLabel={settingsCopy.notificationsLabel}
               />
               {!permissionGranted && !canAskNotifications ? (
-                <Text style={styles.helperText}>Ative nas configurações do sistema</Text>
+                <Text style={styles.helperText}>{settingsCopy.notificationsSystemHint}</Text>
               ) : null}
             </View>
           </View>
-        </View>
+        </Card>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Plano</Text>
+        <Card style={styles.card}>
+          <Text style={styles.cardTitle}>{settingsCopy.planTitle}</Text>
           <View style={styles.rowBetween}>
             <View>
               <Text style={styles.planLabel}>{renderPlanLabel()}</Text>
@@ -172,89 +166,86 @@ const SettingsScreen = ({ navigation, onSignOut }) => {
                   : `${clientCount} clientes cadastrados`}
               </Text>
             </View>
-            <TouchableOpacity
-              style={[styles.planButton, planTier !== 'free' && styles.planButtonSecondary]}
+            <Button
+              label={planTier === 'free' ? settingsCopy.planCtaFree : settingsCopy.planCtaPro}
+              variant={planTier === 'free' ? 'primary' : 'secondary'}
               onPress={handlePlanPress}
-            >
-              <Text
-                style={[styles.planButtonText, planTier !== 'free' && styles.planButtonTextSecondary]}
-              >
-                {planTier === 'free' ? 'Conhecer Plano Pro' : 'Ver detalhes do Pro'}
-              </Text>
-            </TouchableOpacity>
+              accessibilityLabel={planTier === 'free' ? settingsCopy.planCtaFree : settingsCopy.planCtaPro}
+              style={styles.planButton}
+              textStyle={styles.planButtonText}
+            />
           </View>
-        </View>
+        </Card>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Conta</Text>
+        <Card style={styles.card}>
+          <Text style={styles.cardTitle}>{settingsCopy.accountTitle}</Text>
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation?.navigate('Editar Perfil')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={settingsCopy.editProfile}
           >
             <Icon name="user" size={18} color={COLORS.text} />
-            <Text style={styles.menuItemText}>Editar perfil</Text>
+            <Text style={styles.menuItemText}>{settingsCopy.editProfile}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation?.navigate('Alterar Foto')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={settingsCopy.changePhoto}
           >
             <Icon name="image" size={18} color={COLORS.text} />
-            <Text style={styles.menuItemText}>Alterar foto</Text>
+            <Text style={styles.menuItemText}>{settingsCopy.changePhoto}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation?.navigate('Privacidade')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={settingsCopy.privacy}
           >
             <Icon name="shield" size={18} color={COLORS.text} />
-            <Text style={styles.menuItemText}>Preferências de privacidade</Text>
+            <Text style={styles.menuItemText}>{settingsCopy.privacy}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation?.navigate('Preferências de mensagens')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={settingsCopy.templates}
           >
             <Icon name="message-square" size={18} color={COLORS.text} />
-            <Text style={styles.menuItemText}>Preferências de mensagens</Text>
+            <Text style={styles.menuItemText}>{settingsCopy.templates}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.menuItem, styles.menuItemLast]}
             onPress={() => navigation?.navigate('CobrancasHoje')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={settingsCopy.chargesToday}
           >
             <Icon name="message-circle" size={18} color={COLORS.text} />
-            <Text style={styles.menuItemText}>Cobranças de hoje</Text>
+            <Text style={styles.menuItemText}>{settingsCopy.chargesToday}</Text>
           </TouchableOpacity>
-        </View>
+        </Card>
 
-        <TouchableOpacity style={styles.signOutButton} onPress={onSignOut}>
-          <Icon name="log-out" size={18} color={COLORS.danger} />
-          <Text style={styles.signOutText}>Sair da conta</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+      <Button
+        label={settingsCopy.signOut}
+        variant="secondary"
+        style={styles.signOutButton}
+        textStyle={styles.signOutText}
+        onPress={onSignOut}
+        accessibilityLabel={settingsCopy.signOut}
+      />
+    </AppScreen>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  container: { padding: 24, paddingBottom: 80 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-    marginTop: 6,
-  },
-  topBarButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  topBarTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
-  topBarSpacer: { width: 36 },
+  container: { paddingBottom: 80 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
   avatarWrapper: {
     width: 72,
@@ -273,12 +264,7 @@ const styles = StyleSheet.create({
   profileName: { ...TYPOGRAPHY.title, color: COLORS.text },
   profileSubtitle: { ...TYPOGRAPHY.caption, color: COLORS.accent, marginTop: 4 },
   card: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 18,
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
   },
   cardTitle: { ...TYPOGRAPHY.overline, color: COLORS.accent, marginBottom: 14 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -287,14 +273,11 @@ const styles = StyleSheet.create({
   helperText: { ...TYPOGRAPHY.caption, color: COLORS.placeholder, marginTop: 6 },
   planLabel: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
   planButton: {
-    borderRadius: 12,
-    paddingHorizontal: 16,
+    minHeight: 40,
     paddingVertical: 8,
-    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
   },
-  planButtonSecondary: { backgroundColor: 'rgba(26,32,44,0.08)' },
-  planButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
-  planButtonTextSecondary: { ...TYPOGRAPHY.buttonSmall, color: COLORS.text },
+  planButtonText: { ...TYPOGRAPHY.buttonSmall },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -307,15 +290,9 @@ const styles = StyleSheet.create({
   menuItemDanger: { borderBottomWidth: 0 },
   signOutButton: {
     marginTop: 12,
-    backgroundColor: 'rgba(229,62,62,0.12)',
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
+    borderColor: COLORS.danger,
   },
-  signOutText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.danger, marginLeft: 10 },
+  signOutText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.danger },
 });
 
 export default SettingsScreen;

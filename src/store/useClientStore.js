@@ -104,6 +104,23 @@ const getAgeFromBirthdate = (dateKey) => {
 };
 
 const resolveActiveUid = (get) => get().currentUserId || auth?.currentUser?.uid || null;
+const FLOWDESK_STORAGE_KEY = 'flowdesk-app-storage';
+const LEGACY_STORAGE_KEY = 'wallet-app-storage';
+
+const flowdeskPersistStorage = createJSONStorage(() => ({
+  getItem: async (key) => {
+    const value = await AsyncStorage.getItem(key);
+    if (value) return value;
+    if (key !== FLOWDESK_STORAGE_KEY) return value;
+    const legacyValue = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyValue) {
+      await AsyncStorage.setItem(FLOWDESK_STORAGE_KEY, legacyValue);
+    }
+    return legacyValue;
+  },
+  setItem: (key, value) => AsyncStorage.setItem(key, value),
+  removeItem: (key) => AsyncStorage.removeItem(key),
+}));
 
 const pickNonEmptyString = (incoming, current) => {
   if (incoming === undefined || incoming === null) return current || '';
@@ -307,7 +324,14 @@ export const useClientStore = create(
           void (async () => {
             try {
               await upsertClient({ uid, client: updatedClient });
-              await upsertReceivableForClient({ uid, client: updatedClient });
+              await upsertReceivableForClient({
+                uid,
+                client: updatedClient,
+                historyEntry: {
+                  type: 'EDITED',
+                  source: 'client_update',
+                },
+              });
             } catch (error) {
               // ignore firestore sync errors
             }
@@ -423,8 +447,8 @@ export const useClientStore = create(
       },
     }),
     {
-      name: 'wallet-app-storage',
-      storage: createJSONStorage(() => AsyncStorage),
+      name: FLOWDESK_STORAGE_KEY,
+      storage: flowdeskPersistStorage,
       version: 6,
       migrate: (persistedState) => {
         try {

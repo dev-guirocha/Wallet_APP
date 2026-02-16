@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
 import { Feather as Icon } from '@expo/vector-icons';
 
+import { AppScreen, Card, ScreenHeader } from '../components';
 import { useClientStore } from '../store/useClientStore';
 import { updateUserPrivacy } from '../utils/firestoreService';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, TYPOGRAPHY } from '../theme/legacy';
+import { privacyCopy } from '../utils/uiCopy';
 
 const PrivacyScreen = ({ navigation }) => {
   const currentUserId = useClientStore((state) => state.currentUserId);
@@ -20,29 +21,23 @@ const PrivacyScreen = ({ navigation }) => {
     setIsSaving(true);
     try {
       await updateUserPrivacy({ uid: currentUserId, hideBalances: value });
-    } catch (error) {
-      // ignore
+    } catch (_error) {
+      Alert.alert(privacyCopy.title, privacyCopy.updateError);
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Icon name="arrow-left" size={20} color={COLORS.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Privacidade</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <AppScreen style={styles.safeArea}>
+      <ScreenHeader title={privacyCopy.title} navigation={navigation} />
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Saldo e valores</Text>
+      <Card style={styles.card}>
+        <Text style={styles.cardTitle}>{privacyCopy.balancesTitle}</Text>
         <View style={styles.rowBetween}>
           <View style={styles.row}>
             <Icon name="eye-off" size={18} color={COLORS.textSecondary} />
-            <Text style={styles.rowLabel}>Ocultar valores na Home</Text>
+            <Text style={styles.rowLabel}>{privacyCopy.hideBalances}</Text>
           </View>
           <Switch
             value={hideBalances}
@@ -50,44 +45,20 @@ const PrivacyScreen = ({ navigation }) => {
             disabled={isSaving}
             trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
             thumbColor={hideBalances ? COLORS.surface : '#f4f3f4'}
+            accessibilityLabel={privacyCopy.hideBalances}
           />
         </View>
         <Text style={styles.helperText}>
-          Quando ativado, os valores financeiros ficarão mascarados na tela inicial.
+          {privacyCopy.helper}
         </Text>
-      </View>
-    </SafeAreaView>
+      </Card>
+    </AppScreen>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background, padding: 24 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  title: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
-  headerSpacer: { width: 36 },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    ...SHADOWS.medium,
-  },
+  safeArea: { flex: 1, backgroundColor: COLORS.background },
+  card: { marginTop: 8 },
   cardTitle: { ...TYPOGRAPHY.overline, color: COLORS.textSecondary, marginBottom: 14 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   row: { flexDirection: 'row', alignItems: 'center' },

@@ -29,6 +29,29 @@ export const parseDateKeyToDate = (dateKey) => {
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 };
 
+export const toDate = (value) => {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value?.toDate === 'function') {
+    const converted = value.toDate();
+    if (converted instanceof Date && !Number.isNaN(converted.getTime())) {
+      return converted;
+    }
+    return null;
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    const converted = new Date(value);
+    return Number.isNaN(converted.getTime()) ? null : converted;
+  }
+
+  return null;
+};
+
 export const getReadableMonth = (monthKey) => {
   if (!monthKey) return '';
   const [year, month] = monthKey.split('-');

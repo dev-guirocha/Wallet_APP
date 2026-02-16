@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "WalletAPP",
-    "slug": "wallet-app",
+    "name": "Flowdesk",
+    "slug": "flowdesk",
     "version": "1.0.0",
-    "scheme": "walletapp",
+    "scheme": "flowdesk",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/Flowdesk-icon-app.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splashicon.png",
+      "image": "./assets/FlowdeskNBG.png",
       "resizeMode": "contain",
       "backgroundColor": "#F5F7FA"
     },
@@ -24,14 +24,14 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/Flowdesk-icon-app.png",
         "backgroundColor": "#F5F7FA"
       },
       "package": "com.dev.guirocha.walletapp",
       "googleServicesFile": "./google-services.json"
     },
     "web": {
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/Flowdesk-icon-app.png"
     },
     "plugins": [
       "expo-web-browser"

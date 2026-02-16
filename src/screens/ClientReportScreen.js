@@ -1,18 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather as Icon } from '@expo/vector-icons';
 
+import { AppScreen, Card, EmptyState, ErrorState, LoadingSkeleton, ScreenHeader } from '../components';
 import { useClientStore } from '../store/useClientStore';
 import { fetchReceivablesForRange } from '../utils/firestoreService';
 import { formatCurrency, getMonthKey, startOfDay, endOfDay } from '../utils/dateUtils';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, TYPOGRAPHY } from '../theme/legacy';
+import { clientReportCopy } from '../utils/uiCopy';
 
 const buildRangeForSixMonths = () => {
   const today = new Date();
@@ -42,6 +40,7 @@ const ClientReportScreen = ({ navigation, route }) => {
   const [chargeCount, setChargeCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [retryTick, setRetryTick] = useState(0);
 
   const resolvedName = useMemo(() => {
     const fromStore = clients.find((item) => item.id === clientId)?.name;
@@ -103,9 +102,9 @@ const ClientReportScreen = ({ navigation, route }) => {
         setAvgValue(avg);
         setAvgDaysToPay(paidCount > 0 ? totalDays / paidCount : 0);
         setChargeCount(charges);
-      } catch (error) {
+      } catch (_error) {
         if (!active) return;
-        setLoadError('Não foi possível carregar o relatório do cliente.');
+        setLoadError(clientReportCopy.loadingErrorMessage);
       } finally {
         if (active) setIsLoading(false);
       }
@@ -115,7 +114,7 @@ const ClientReportScreen = ({ navigation, route }) => {
     return () => {
       active = false;
     };
-  }, [clientId, currentUserId]);
+  }, [clientId, currentUserId, retryTick]);
 
   const maxHistoryTotal = useMemo(() => {
     if (!history.length) return 1;
@@ -123,102 +122,83 @@ const ClientReportScreen = ({ navigation, route }) => {
   }, [history]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Icon name="arrow-left" size={20} color={COLORS.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>{resolvedName}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <AppScreen scroll style={styles.safeArea} contentContainerStyle={styles.content}>
+      <ScreenHeader title={resolvedName} navigation={navigation} />
 
       {isLoading ? (
         <View style={styles.loading}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <LoadingSkeleton width="100%" height={120} style={styles.loadingBlock} />
+          <LoadingSkeleton width="100%" height={120} style={styles.loadingBlock} />
         </View>
       ) : null}
 
       {loadError ? (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorText}>{loadError}</Text>
-        </View>
+        <ErrorState
+          title={clientReportCopy.loadingErrorTitle}
+          message={loadError}
+          onRetry={() => {
+            setRetryTick((prev) => prev + 1);
+          }}
+          style={styles.errorCard}
+        />
       ) : null}
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Resumo (6 meses)</Text>
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Valor médio</Text>
-            <Text style={styles.summaryValue}>{formatCurrency(avgValue)}</Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Cobranças</Text>
-            <Text style={styles.summaryValue}>{chargeCount}</Text>
-          </View>
-        </View>
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Tempo médio para pagar</Text>
-            <Text style={styles.summaryValue}>{avgDaysToPay.toFixed(1)} dias</Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Histórico 6 meses</Text>
-        <View style={styles.historyRow}>
-          {history.map((item) => {
-            const height = Math.max(8, (item.total / maxHistoryTotal) * 80);
-            return (
-              <View key={item.monthKey} style={styles.historyItem}>
-                <View style={[styles.historyBar, { height }]} />
-                <Text style={styles.historyLabel}>{item.monthKey.slice(5)}</Text>
+      {!isLoading && !loadError ? (
+        <>
+          <Card style={styles.card}>
+            <Text style={styles.cardTitle}>{clientReportCopy.summaryTitle}</Text>
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>{clientReportCopy.avgValue}</Text>
+                <Text style={styles.summaryValue}>{formatCurrency(avgValue)}</Text>
               </View>
-            );
-          })}
-        </View>
-      </View>
-    </SafeAreaView>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>{clientReportCopy.charges}</Text>
+                <Text style={styles.summaryValue}>{chargeCount}</Text>
+              </View>
+            </View>
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>{clientReportCopy.avgDaysToPay}</Text>
+                <Text style={styles.summaryValue}>{avgDaysToPay.toFixed(1)} {clientReportCopy.daysSuffix}</Text>
+              </View>
+            </View>
+          </Card>
+
+          <Card style={styles.card}>
+            <Text style={styles.cardTitle}>{clientReportCopy.historyTitle}</Text>
+            {history.length === 0 ? (
+              <EmptyState
+                title={clientReportCopy.noHistoryTitle}
+                message={clientReportCopy.noHistoryMessage}
+              />
+            ) : (
+              <View style={styles.historyRow}>
+                {history.map((item) => {
+                  const height = Math.max(8, (item.total / maxHistoryTotal) * 80);
+                  return (
+                    <View key={item.monthKey} style={styles.historyItem}>
+                      <View style={[styles.historyBar, { height }]} />
+                      <Text style={styles.historyLabel}>{item.monthKey.slice(5)}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </Card>
+        </>
+      ) : null}
+    </AppScreen>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background, padding: 24 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  title: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
-  headerSpacer: { width: 36 },
+  safeArea: { flex: 1, backgroundColor: COLORS.background },
+  content: { paddingBottom: 32 },
   loading: { marginTop: 16 },
-  errorCard: {
-    backgroundColor: 'rgba(229,62,62,0.1)',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  errorText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.danger },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    ...SHADOWS.small,
-    marginBottom: 16,
-  },
+  loadingBlock: { marginBottom: 10 },
+  errorCard: { marginTop: 8 },
+  card: { marginTop: 8 },
   cardTitle: { ...TYPOGRAPHY.overline, color: COLORS.textSecondary, marginBottom: 12 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   summaryItem: { flex: 1 },

@@ -7,17 +7,16 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   Platform,
   Alert,
-  KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
+import { Card, FormField, FormScreen } from '../components';
 import { useClientStore } from '../store/useClientStore';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme/legacy';
+import { formLabels } from '../utils/uiCopy';
 
 const CATEGORIES = [
   { id: 'marketing', label: 'Marketing', icon: 'trending-up', color: '#4299E1' },
@@ -51,8 +50,9 @@ const AddExpenseScreen = ({ navigation }) => {
   const [category, setCategory] = useState(CATEGORIES[CATEGORIES.length - 1]);
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!title.trim()) {
       Alert.alert('Atencao', 'Informe uma descricao para a despesa.');
       return;
@@ -64,15 +64,20 @@ const AddExpenseScreen = ({ navigation }) => {
       return;
     }
 
-    addExpense({
-      title: title.trim(),
-      value: numericValue,
-      category: category.id,
-      categoryLabel: category.label,
-      date: date.toISOString(),
-    });
+    setIsSaving(true);
+    try {
+      await addExpense({
+        title: title.trim(),
+        value: numericValue,
+        category: category.id,
+        categoryLabel: category.label,
+        date: date.toISOString(),
+      });
 
-    navigation.goBack();
+      navigation.goBack();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const onDateChange = (_, selectedDate) => {
@@ -85,143 +90,120 @@ const AddExpenseScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeBtn}>
-          <Icon name="x" size={24} color={COLORS.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Nova Despesa</Text>
-        <TouchableOpacity onPress={handleSave}>
-          <Text style={styles.saveText}>Salvar</Text>
-        </TouchableOpacity>
+    <FormScreen
+      title={formLabels.addExpense.title}
+      navigation={navigation}
+      onSubmit={handleSave}
+      submitLabel={formLabels.addExpense.submit}
+      loading={isSaving}
+    >
+      <View style={styles.amountContainer}>
+        <FormField
+          label={formLabels.addExpense.amount}
+          style={styles.amountField}
+          labelStyle={styles.amountLabel}
+        >
+          <TextInput
+            style={styles.amountInput}
+            value={valueStr}
+            onChangeText={(text) => setValueStr(formatCurrencyRaw(text))}
+            keyboardType="numeric"
+            placeholder="R$ 0,00"
+            placeholderTextColor={COLORS.textSecondary}
+            autoFocus
+            accessibilityLabel={formLabels.addExpense.amount}
+          />
+        </FormField>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.keyboardWrapper}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          <View style={styles.amountContainer}>
-            <Text style={styles.amountLabel}>Valor da despesa</Text>
-            <TextInput
-              style={styles.amountInput}
-              value={valueStr}
-              onChangeText={(text) => setValueStr(formatCurrencyRaw(text))}
-              keyboardType="numeric"
-              placeholder="R$ 0,00"
-              placeholderTextColor={COLORS.textSecondary}
-              autoFocus
+      <Card style={styles.formCard}>
+        <FormField label={formLabels.addExpense.description} style={styles.inputGroup}>
+          <TextInput
+            style={styles.input}
+            value={title}
+            onChangeText={setTitle}
+            placeholder={formLabels.addExpense.descriptionPlaceholder}
+            placeholderTextColor={COLORS.textSecondary}
+            accessibilityLabel={formLabels.addExpense.description}
+          />
+        </FormField>
+
+        <FormField label={formLabels.addExpense.date} style={styles.inputGroup}>
+          <TouchableOpacity
+            style={styles.dateSelector}
+            onPress={() => setShowDatePicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Selecionar data da despesa"
+          >
+            <Icon name="calendar" size={20} color={COLORS.textPrimary} />
+            <Text style={styles.dateText}>
+              {date.toLocaleDateString('pt-BR', {
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </Text>
+          </TouchableOpacity>
+          {showDatePicker ? (
+            <DateTimePicker
+              value={date}
+              mode="date"
+              display="default"
+              onChange={onDateChange}
             />
+          ) : null}
+        </FormField>
+
+        <FormField label={formLabels.addExpense.category} style={styles.inputGroupNoSpacing}>
+          <View style={styles.categoryGrid}>
+            {CATEGORIES.map((cat) => {
+              const isSelected = category.id === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[
+                    styles.catItem,
+                    isSelected && styles.catItemSelected,
+                    isSelected && { borderColor: cat.color, backgroundColor: `${cat.color}15` },
+                  ]}
+                  onPress={() => setCategory(cat)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Categoria ${cat.label}`}
+                >
+                  <Icon
+                    name={cat.icon}
+                    size={20}
+                    color={isSelected ? cat.color : COLORS.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.catText,
+                      isSelected && { color: cat.color, fontWeight: '700' },
+                    ]}
+                  >
+                    {cat.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-
-          <View style={styles.formCard}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Descricao</Text>
-              <TextInput
-                style={styles.input}
-                value={title}
-                onChangeText={setTitle}
-                placeholder="Ex: Anuncio Instagram"
-                placeholderTextColor={COLORS.textSecondary}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Data</Text>
-              <TouchableOpacity
-                style={styles.dateSelector}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Icon name="calendar" size={20} color={COLORS.textPrimary} />
-                <Text style={styles.dateText}>
-                  {date.toLocaleDateString('pt-BR', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </Text>
-              </TouchableOpacity>
-              {showDatePicker ? (
-                <DateTimePicker
-                  value={date}
-                  mode="date"
-                  display="default"
-                  onChange={onDateChange}
-                />
-              ) : null}
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Categoria</Text>
-              <View style={styles.categoryGrid}>
-                {CATEGORIES.map((cat) => {
-                  const isSelected = category.id === cat.id;
-                  return (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.catItem,
-                        isSelected && styles.catItemSelected,
-                        isSelected && { borderColor: cat.color, backgroundColor: `${cat.color}15` },
-                      ]}
-                      onPress={() => setCategory(cat)}
-                    >
-                      <Icon
-                        name={cat.icon}
-                        size={20}
-                        color={isSelected ? cat.color : COLORS.textSecondary}
-                      />
-                      <Text
-                        style={[
-                          styles.catText,
-                          isSelected && { color: cat.color, fontWeight: '700' },
-                        ]}
-                      >
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        </FormField>
+      </Card>
+    </FormScreen>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background },
-  keyboardWrapper: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-  },
-  headerTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
-  saveText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.primary },
-  closeBtn: { padding: 4 },
-  content: { padding: 20 },
-  amountContainer: { alignItems: 'center', marginBottom: 30, marginTop: 10 },
+  amountContainer: { alignItems: 'center', marginBottom: 22, marginTop: 4 },
+  amountField: { width: '100%', alignItems: 'center', marginBottom: 0 },
   amountLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 8 },
   amountInput: { ...TYPOGRAPHY.hero, color: COLORS.danger },
   formCard: {
-    backgroundColor: COLORS.surface,
     borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
     ...SHADOWS.medium,
   },
   inputGroup: { marginBottom: 24 },
-  label: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 12 },
+  inputGroupNoSpacing: { marginBottom: 4 },
   input: {
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,

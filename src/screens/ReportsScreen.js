@@ -1,24 +1,30 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   FlatList,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
 
 import MonthPicker from '../components/MonthPicker';
+import {
+  AppScreen,
+  Card,
+  EmptyState,
+  ErrorState,
+  LoadingSkeleton,
+  SegmentedControl,
+  ScreenHeader,
+} from '../components';
 import { useClientStore } from '../store/useClientStore';
 import { fetchReceivablesForRange } from '../utils/firestoreService';
 import { formatCurrency, getMonthKey, startOfDay, endOfDay } from '../utils/dateUtils';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, TYPOGRAPHY } from '../theme/legacy';
+import { emptyMessages, reportMetricLabels } from '../utils/uiCopy';
 
 const buildMonthStart = (monthKey) => {
   const [yearString, monthString] = String(monthKey).split('-');
@@ -42,6 +48,19 @@ const normalizeLocationLabel = (value) => {
   if (!value) return 'Sem local';
   const normalized = String(value).trim();
   return normalized || 'Sem local';
+};
+
+const CHART_MODES = [
+  { key: 'REVENUE', label: reportMetricLabels.REVENUE, color: COLORS.info },
+  { key: 'RECEIVED', label: reportMetricLabels.RECEIVED, color: COLORS.success },
+  { key: 'LOST', label: reportMetricLabels.LOST, color: COLORS.danger },
+];
+
+const resolveDueDate = (value) => {
+  if (value?.toDate && typeof value.toDate === 'function') return value.toDate();
+  const parsed = value ? new Date(value) : null;
+  if (!(parsed instanceof Date) || Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 };
 
 const polarToCartesian = (centerX, centerY, radius, angleInDegrees) => {
@@ -104,13 +123,30 @@ const ReportsScreen = ({ navigation }) => {
   const [summary, setSummary] = useState(null);
   const [clientRows, setClientRows] = useState([]);
   const [incomeByLocation, setIncomeByLocation] = useState([]);
+  const [monthReceivables, setMonthReceivables] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [chartMode, setChartMode] = useState('REVENUE');
+  const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
+  const chartModeOptions = useMemo(
+    () => CHART_MODES.map((mode) => ({ key: mode.key, label: mode.label })),
+    []
+  );
+  const keyExtractorClient = useCallback((item) => item.clientId, []);
+  const handleSelectChartMode = useCallback((nextMode) => setChartMode(nextMode), []);
+  const handleRetryLoad = useCallback(() => {
+    setReloadNonce((prev) => prev + 1);
+  }, []);
 
   const cacheKey = useMemo(() => {
     if (!currentUserId) return '';
     return `reports-cache-${currentUserId}-${monthKey}`;
   }, [currentUserId, monthKey]);
+
+  useEffect(() => {
+    setSelectedPeriodKey('');
+  }, [monthKey, chartMode]);
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -126,7 +162,8 @@ const ReportsScreen = ({ navigation }) => {
         setSummary(parsed.summary || null);
         setClientRows(parsed.clientRows || []);
         setIncomeByLocation(parsed.locationRows || []);
-      } catch (error) {
+        setMonthReceivables(parsed.receivables || []);
+      } catch (_error) {
         // ignore cache errors
       }
     };
@@ -218,14 +255,20 @@ const ReportsScreen = ({ navigation }) => {
         setSummary(summaryNext);
         setClientRows(clientRowsNext);
         setIncomeByLocation(locationRows);
+        setMonthReceivables(receivables);
 
         if (cacheKey) {
           await AsyncStorage.setItem(
             cacheKey,
-            JSON.stringify({ summary: summaryNext, clientRows: clientRowsNext, locationRows })
+            JSON.stringify({
+              summary: summaryNext,
+              clientRows: clientRowsNext,
+              locationRows,
+              receivables,
+            })
           );
         }
-      } catch (error) {
+      } catch (_error) {
         if (!active) return;
         setLoadError('Não foi possível carregar o relatório.');
       } finally {
@@ -238,177 +281,349 @@ const ReportsScreen = ({ navigation }) => {
     return () => {
       active = false;
     };
-  }, [cacheKey, clients, currentUserId, monthKey]);
+  }, [cacheKey, clients, currentUserId, monthKey, reloadNonce]);
 
   const totalByLocation = useMemo(
     () => incomeByLocation.reduce((sum, item) => sum + Number(item.value || 0), 0),
     [incomeByLocation]
   );
 
-  const renderClientRow = ({ item }) => (
-    <TouchableOpacity
-      style={styles.clientRow}
-      onPress={() => navigation.navigate('ClientReport', { clientId: item.clientId, clientName: item.name })}
-    >
-      <View>
-        <Text style={styles.clientName}>{item.name}</Text>
-        <Text style={styles.clientMeta}>
-          Previsto: {formatCurrency(item.expected)} • Pago: {formatCurrency(item.paid)}
-        </Text>
-        <Text style={styles.clientMeta}>
-          Pendência: {formatCurrency(item.pending)} • Cobranças: {item.charges}
-        </Text>
-      </View>
-      <Icon name="chevron-right" size={18} color={COLORS.textSecondary} />
-    </TouchableOpacity>
+  const periods = useMemo(() => {
+    const base = Array.from({ length: 5 }).map((_, index) => ({
+      key: `W${index + 1}`,
+      label: `Sem ${index + 1}`,
+      revenue: 0,
+      received: 0,
+      lost: 0,
+    }));
+
+    monthReceivables.forEach((item) => {
+      const dueDate = resolveDueDate(item?.dueDate);
+      if (!(dueDate instanceof Date) || Number.isNaN(dueDate.getTime())) return;
+      const day = dueDate.getDate();
+      const bucketIndex = Math.min(4, Math.floor((day - 1) / 7));
+      const amount = Number(item?.amount || 0);
+      if (!Number.isFinite(amount)) return;
+
+      const bucket = base[bucketIndex];
+      bucket.revenue += amount;
+      if (item?.paid) {
+        bucket.received += amount;
+      } else {
+        bucket.lost += amount;
+      }
+    });
+
+    return base;
+  }, [monthReceivables]);
+
+  const getPeriodValue = (period, mode) => {
+    if (mode === 'RECEIVED') return Number(period?.received || 0);
+    if (mode === 'LOST') return Number(period?.lost || 0);
+    return Number(period?.revenue || 0);
+  };
+
+  const chartModeConfig = useMemo(
+    () => CHART_MODES.find((mode) => mode.key === chartMode) || CHART_MODES[0],
+    [chartMode]
+  );
+
+  const maxPeriodValue = useMemo(() => {
+    const values = periods.map((period) => getPeriodValue(period, chartMode));
+    return Math.max(1, ...values);
+  }, [chartMode, periods]);
+
+  const selectedPeriod = useMemo(
+    () => periods.find((period) => period.key === selectedPeriodKey) || null,
+    [periods, selectedPeriodKey]
+  );
+
+  const selectedPeriodValue = selectedPeriod ? getPeriodValue(selectedPeriod, chartMode) : 0;
+
+  const modeTotal = useMemo(
+    () => periods.reduce((sum, period) => sum + getPeriodValue(period, chartMode), 0),
+    [chartMode, periods]
+  );
+
+  const interpretationText = useMemo(() => {
+    if (!summary) return emptyMessages.reports.noDataInterpretation;
+
+    if (summary.pending <= 0) {
+      return emptyMessages.reports.interpretationHealthy;
+    }
+    if (summary.delinquencyPercent >= 35) {
+      return emptyMessages.reports.interpretationHighDelinquency;
+    }
+    if (summary.paid >= summary.expected * 0.75) {
+      return emptyMessages.reports.interpretationGoodRhythm;
+    }
+    return emptyMessages.reports.interpretationRecovery;
+  }, [summary]);
+
+  const hasReportData = useMemo(
+    () =>
+      Boolean(summary) ||
+      clientRows.length > 0 ||
+      incomeByLocation.length > 0 ||
+      monthReceivables.length > 0,
+    [clientRows.length, incomeByLocation.length, monthReceivables.length, summary]
+  );
+
+  const shouldShowLoadingSkeleton = isLoading && !hasReportData && !loadError;
+
+  const renderClientRow = useCallback(
+    ({ item }) => (
+      <TouchableOpacity
+        style={styles.clientRow}
+        onPress={() => navigation.navigate('ClientReport', { clientId: item.clientId, clientName: item.name })}
+      >
+        <View>
+          <Text style={styles.clientName}>{item.name}</Text>
+          <Text style={styles.clientMeta}>
+            Previsto: {formatCurrency(item.expected)} • Pago: {formatCurrency(item.paid)}
+          </Text>
+          <Text style={styles.clientMeta}>
+            Pendência: {formatCurrency(item.pending)} • Cobranças: {item.charges}
+          </Text>
+        </View>
+        <Icon name="chevron-right" size={18} color={COLORS.textSecondary} />
+      </TouchableOpacity>
+    ),
+    [navigation]
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Relatórios</Text>
+    <AppScreen scroll style={styles.safeArea} contentContainerStyle={styles.container}>
+      <ScreenHeader title="Relatórios" navigation={navigation} />
+
+      <MonthPicker monthKey={monthKey} onChange={setMonthKey} />
+
+      {shouldShowLoadingSkeleton ? (
+        <View style={styles.loading}>
+          <LoadingSkeleton width="100%" height={130} style={styles.loadingBlock} />
+          <LoadingSkeleton width="100%" height={220} style={styles.loadingBlock} />
+        </View>
+      ) : null}
+
+      {loadError ? (
+        <ErrorState
+          title="Falha ao carregar relatório"
+          message={loadError}
+          onRetry={handleRetryLoad}
+          style={styles.errorCard}
+        />
+      ) : null}
+
+      {summary ? (
+        <Card style={styles.card}>
+          <Text style={styles.cardTitle}>Geral do mês</Text>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Previsto</Text>
+              <Text style={styles.summaryValue}>{formatCurrency(summary.expected)}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Pago</Text>
+              <Text style={[styles.summaryValue, { color: COLORS.success }]}>
+                {formatCurrency(summary.paid)}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Pendente</Text>
+              <Text style={[styles.summaryValue, { color: COLORS.warning }]}>
+                {formatCurrency(summary.pending)}
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Inadimplência</Text>
+              <Text style={styles.summaryValue}>{summary.delinquencyPercent.toFixed(1)}%</Text>
+            </View>
+          </View>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Cobranças enviadas</Text>
+              <Text style={styles.summaryValue}>{summary.chargesSent}</Text>
+            </View>
+          </View>
+
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressPaid,
+                {
+                  width: summary.expected > 0 ? `${(summary.paid / summary.expected) * 100}%` : '0%',
+                },
+              ]}
+            />
+          </View>
+          <Text style={styles.progressLabel}>Progresso de pagamentos</Text>
+        </Card>
+      ) : null}
+
+      <Card style={styles.card}>
+        <Text style={styles.cardTitle}>Leitura do mês</Text>
+        <Text style={styles.interpretationText}>{interpretationText}</Text>
+
+        <SegmentedControl
+          options={chartModeOptions}
+          value={chartMode}
+          onChange={handleSelectChartMode}
+          style={styles.modeSwitchRow}
+        />
+
+        <View style={styles.periodChartRow}>
+          {periods.map((period) => {
+            const value = getPeriodValue(period, chartMode);
+            const barHeightPercent = Math.max(10, (value / maxPeriodValue) * 100);
+            const isActive = selectedPeriodKey === period.key;
+            return (
+              <TouchableOpacity
+                key={period.key}
+                style={styles.periodItem}
+                onPress={() => setSelectedPeriodKey(period.key)}
+                accessibilityRole="button"
+                accessibilityLabel={`Ver resumo da ${period.label}`}
+              >
+                <View style={[styles.periodBarBase, isActive && styles.periodBarBaseActive]}>
+                  <View
+                    style={[
+                      styles.periodBarFill,
+                      { height: `${barHeightPercent}%`, backgroundColor: chartModeConfig.color },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.periodLabel}>{period.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        <MonthPicker monthKey={monthKey} onChange={setMonthKey} />
-
-        {isLoading ? (
-          <View style={styles.loading}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
-          </View>
-        ) : null}
-
-        {loadError ? (
-          <TouchableOpacity style={styles.errorCard} onPress={() => setMonthKey((prev) => prev)}>
-            <Text style={styles.errorText}>{loadError}</Text>
-            <Text style={styles.errorHint}>Toque para tentar novamente</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {summary ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Geral do mês</Text>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Previsto</Text>
-                <Text style={styles.summaryValue}>{formatCurrency(summary.expected)}</Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Pago</Text>
-                <Text style={[styles.summaryValue, { color: COLORS.success }]}>
-                  {formatCurrency(summary.paid)}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Pendente</Text>
-                <Text style={[styles.summaryValue, { color: COLORS.warning }]}>
-                  {formatCurrency(summary.pending)}
-                </Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Inadimplência</Text>
-                <Text style={styles.summaryValue}>{summary.delinquencyPercent.toFixed(1)}%</Text>
-              </View>
-            </View>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Cobranças enviadas</Text>
-                <Text style={styles.summaryValue}>{summary.chargesSent}</Text>
-              </View>
-            </View>
-
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressPaid,
-                  {
-                    width: summary.expected > 0 ? `${(summary.paid / summary.expected) * 100}%` : '0%',
-                  },
-                ]}
-              />
-            </View>
-            <Text style={styles.progressLabel}>Progresso de pagamentos</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Origem da renda por local</Text>
-          {incomeByLocation.length > 0 ? (
-            <>
-              <View style={styles.pieContainer}>
-                <PieChart segments={incomeByLocation} />
-              </View>
-              <View style={styles.legendList}>
-                {incomeByLocation.map((item) => {
-                  const percentage = totalByLocation > 0 ? (item.value / totalByLocation) * 100 : 0;
-                  return (
-                    <View key={item.id} style={styles.legendRow}>
-                      <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                      <Text style={styles.legendLabel} numberOfLines={1}>
-                        {item.label}
-                      </Text>
-                      <Text style={styles.legendValue}>
-                        {formatCurrency(item.value)} ({percentage.toFixed(1)}%)
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </>
-          ) : (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>Sem receita para exibir por local neste mês.</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Clientes</Text>
-        </View>
-
-        {clientRows.length === 0 && !isLoading ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>Nenhum recebível neste mês.</Text>
-          </View>
+        {selectedPeriod ? (
+          <Text style={styles.periodSummary}>
+            {selectedPeriod.label}: {chartModeConfig.label.toLowerCase()} de {formatCurrency(selectedPeriodValue)}
+            {' '}({modeTotal > 0 ? ((selectedPeriodValue / modeTotal) * 100).toFixed(1) : '0.0'}% do mês).
+          </Text>
         ) : (
-          <FlatList
-            data={clientRows}
-            keyExtractor={(item) => item.clientId}
-            renderItem={renderClientRow}
-            scrollEnabled={false}
+          <Text style={styles.periodSummaryHint}>{emptyMessages.reports.periodHint}</Text>
+        )}
+      </Card>
+
+      <Card style={styles.card}>
+        <Text style={styles.cardTitle}>Origem da renda por local</Text>
+        {incomeByLocation.length > 0 ? (
+          <>
+            <View style={styles.pieContainer}>
+              <PieChart segments={incomeByLocation} />
+            </View>
+            <View style={styles.legendList}>
+              {incomeByLocation.map((item) => {
+                const percentage = totalByLocation > 0 ? (item.value / totalByLocation) * 100 : 0;
+                return (
+                  <View key={item.id} style={styles.legendRow}>
+                    <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                    <Text style={styles.legendLabel} numberOfLines={1}>
+                      {item.label}
+                    </Text>
+                    <Text style={styles.legendValue}>
+                      {formatCurrency(item.value)} ({percentage.toFixed(1)}%)
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <EmptyState
+            title="Sem receita por local"
+            message="Sem receita para exibir por local neste mês."
+            style={styles.emptyCard}
           />
         )}
-      </ScrollView>
-    </SafeAreaView>
+      </Card>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Clientes</Text>
+      </View>
+
+      {clientRows.length === 0 && !isLoading ? (
+        <EmptyState
+          title="Sem recebíveis no mês"
+          message="Nenhum recebível neste mês."
+          style={styles.emptyCard}
+        />
+      ) : (
+        <FlatList
+          data={clientRows}
+          keyExtractor={keyExtractorClient}
+          renderItem={renderClientRow}
+          scrollEnabled={false}
+        />
+      )}
+    </AppScreen>
   );
 };
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  container: { padding: 24, paddingBottom: 80 },
-  header: { marginBottom: 16 },
-  title: { ...TYPOGRAPHY.display, color: COLORS.textPrimary },
+  container: { paddingBottom: 80 },
   loading: { marginTop: 12 },
-  errorCard: {
-    marginTop: 12,
-    backgroundColor: 'rgba(229,62,62,0.1)',
-    borderRadius: 12,
-    padding: 12,
+  loadingBlock: { marginBottom: 10 },
+  errorCard: { marginTop: 12 },
+  card: { marginTop: 16 },
+  cardTitle: { ...TYPOGRAPHY.overline, color: COLORS.textSecondary, marginBottom: 12 },
+  interpretationText: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textPrimary,
+    marginBottom: 12,
   },
-  errorText: { ...TYPOGRAPHY.bodyMedium, color: COLORS.danger },
-  errorHint: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginTop: 4 },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 18,
+  modeSwitchRow: {
+    marginBottom: 14,
+  },
+  periodChartRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 10,
+  },
+  periodItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  periodBarBase: {
+    width: '100%',
+    height: 120,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    ...SHADOWS.small,
-    marginTop: 16,
+    backgroundColor: 'rgba(148,163,184,0.12)',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    padding: 4,
   },
-  cardTitle: { ...TYPOGRAPHY.overline, color: COLORS.textSecondary, marginBottom: 12 },
+  periodBarBaseActive: {
+    borderColor: COLORS.info,
+  },
+  periodBarFill: {
+    width: '100%',
+    borderRadius: 8,
+    minHeight: 6,
+  },
+  periodLabel: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginTop: 6,
+  },
+  periodSummary: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textPrimary,
+  },
+  periodSummaryHint: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   summaryItem: { flex: 1 },
   summaryLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 4 },
@@ -430,14 +645,7 @@ const styles = StyleSheet.create({
   legendValue: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
   sectionHeader: { marginTop: 20, marginBottom: 10 },
   sectionTitle: { ...TYPOGRAPHY.subtitle, color: COLORS.textPrimary },
-  emptyCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  emptyText: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary },
+  emptyCard: { marginTop: 8 },
   clientRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

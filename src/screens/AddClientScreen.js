@@ -8,17 +8,15 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   Alert,
   Switch,
-  KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useClientStore } from '../store/useClientStore';
 import { buildPhoneE164FromRaw } from '../utils/whatsapp';
-import { COLORS as THEME, TYPOGRAPHY } from '../constants/theme';
+import { Card, FormField, FormScreen, SnackbarUndo } from '../components';
+import { COLORS as THEME, SHADOWS, TYPOGRAPHY } from '../theme/legacy';
 
 const COLORS = {
   background: THEME.background,
@@ -155,6 +153,7 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
     editingClient?.notificationsScheduleOptIn !== undefined ? editingClient.notificationsScheduleOptIn : true,
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [editUndoPayload, setEditUndoPayload] = useState(null);
   const saveLockRef = useRef(false);
 
   useEffect(() => {
@@ -394,9 +393,13 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
       };
       if (isEditing) {
         if (editingClient?.id) {
-          Promise.resolve(updateClient(editingClient.id, newClientData)).catch(() => {});
+          const previousClientSnapshot = { ...editingClient };
+          await Promise.resolve(updateClient(editingClient.id, newClientData));
+          setEditUndoPayload({
+            clientId: editingClient.id,
+            previousClient: previousClientSnapshot,
+          });
         }
-        navigation.goBack();
         return;
       }
 
@@ -421,186 +424,207 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="x" size={28} color={COLORS.text} />
-        </TouchableOpacity>
-        <Text style={styles.title}>{isEditing ? `Editar ${term}` : `Novo ${term}`}</Text>
-        <TouchableOpacity
-          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={isSaving}
-        >
-          <Text style={styles.saveButtonText}>
-            {isSaving ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Salvar'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-      <KeyboardAvoidingView
-        style={styles.keyboardWrapper}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <>
+      <FormScreen
+        title={isEditing ? `Editar ${term}` : `Novo ${term}`}
+        navigation={navigation}
+        onSubmit={handleSave}
+        submitLabel={isEditing ? 'Salvar alterações' : 'Salvar'}
+        loading={isSaving}
+        submitDisabled={Boolean(editUndoPayload)}
       >
-        <ScrollView
-          style={styles.container}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
+        <View style={styles.container}>
           {isFreePlan && !isEditing ? (
-            <View style={styles.limitNotice}>
+            <Card style={styles.limitNotice}>
               <Text style={styles.limitText}>
                 {clientCount < clientLimit
                   ? `Versão gratuita: ${clientCount}/${clientLimit} clientes.`
                   : 'Limite gratuito atingido. Conheça o Plano Pro para adicionar mais.'}
               </Text>
-            </View>
+            </Card>
           ) : null}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Nome do {term}</Text>
-            <TextInput style={styles.input} value={name} onChangeText={setName} />
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Local de Atendimento</Text>
-            <TextInput style={styles.input} value={location} onChangeText={setLocation} />
-          </View>
-          <View style={styles.inputGroup}>
-          <Text style={styles.label}>Telefone *</Text>
-          <TextInput
-            style={styles.input}
-            value={phone}
-            onChangeText={(text) => setPhone(formatPhoneBR(text))}
-            keyboardType="phone-pad"
-            placeholder="(99) 99999-9999"
-          />
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Dias da Semana</Text>
-            <View style={styles.weekdaysContainer}>
-              {WEEKDAYS.map(day => (
-                <TouchableOpacity
-                  key={day}
-                  style={[styles.dayButton, selectedDays.includes(day) && styles.dayButtonSelected]}
-                  onPress={() => toggleDay(day)}
-                >
-                  <Text style={[styles.dayText, selectedDays.includes(day) && styles.dayTextSelected]}>{day}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          {selectedDays.length > 0 ? (
-            <View style={styles.dayTimesContainer}>
-              <Text style={styles.dayTimesTitle}>Horários por dia (opcional)</Text>
-              {selectedDays.map((day) => {
-                const overrideLabel = dayTimes[day];
-                const displayLabel = overrideLabel || classTimeLabel || 'Selecionar';
-                return (
-                  <View key={day} style={styles.dayTimeRow}>
-                    <Text style={styles.dayTimeLabel}>{day}</Text>
-                    <TouchableOpacity
-                      style={styles.dayTimeButton}
-                      onPress={() => openDayTimePicker(day)}
-                    >
-                      <Text style={styles.dayTimeButtonText}>{displayLabel}</Text>
-                      <Icon name="clock" size={18} color={COLORS.text} />
-                    </TouchableOpacity>
-                    {overrideLabel ? (
-                      <TouchableOpacity
-                        style={styles.dayTimeReset}
-                        onPress={() =>
-                          setDayTimes((prev) => {
-                            const next = { ...prev };
-                            delete next[day];
-                            return next;
-                          })
-                        }
-                      >
-                        <Icon name="x" size={16} color={COLORS.placeholder} />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
-          <View style={styles.row}>
-          <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
-            <Text style={styles.label}>Horário padrão (opcional)</Text>
-            <TouchableOpacity
-              style={[styles.input, styles.timePickerButton]}
-              onPress={openDefaultTimePicker}
+          <Card style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Dados do {term}</Text>
+            <FormField label={`Nome do ${term}`} style={styles.field}>
+              <TextInput
+                style={styles.input}
+                value={name}
+                onChangeText={setName}
+                placeholder={`Nome do ${term.toLowerCase()}`}
+                placeholderTextColor={COLORS.placeholder}
+              />
+            </FormField>
+            <FormField label="Local de atendimento" style={styles.field}>
+              <TextInput
+                style={styles.input}
+                value={location}
+                onChangeText={setLocation}
+                placeholder="Ex: Studio Centro"
+                placeholderTextColor={COLORS.placeholder}
+              />
+            </FormField>
+            <FormField
+              label="Telefone *"
+              style={styles.fieldLast}
+              helper="Com DDD, para confirmação e cobrança no WhatsApp."
             >
-              <Text style={classTimeLabel ? styles.timePickerValue : styles.timePickerPlaceholder}>
-                {classTimeLabel || 'Selecionar horário'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-          {Platform.OS === 'ios' && showTimePicker ? (
-            <View style={styles.iosPickerContainer}>
-              <View style={styles.iosPickerHeader}>
-                <TouchableOpacity onPress={handleTimePickerCancel}>
-                  <Text style={styles.iosPickerAction}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleTimePickerDone}>
-                  <Text style={[styles.iosPickerAction, styles.iosPickerActionPrimary]}>Concluir</Text>
-                </TouchableOpacity>
+              <TextInput
+                style={styles.input}
+                value={phone}
+                onChangeText={(text) => setPhone(formatPhoneBR(text))}
+                keyboardType="phone-pad"
+                placeholder="(99) 99999-9999"
+                placeholderTextColor={COLORS.placeholder}
+              />
+            </FormField>
+          </Card>
+
+          <Card style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Agenda</Text>
+            <FormField label="Dias da semana" style={styles.field}>
+              <View style={styles.weekdaysContainer}>
+                {WEEKDAYS.map((day) => (
+                  <TouchableOpacity
+                    key={day}
+                    style={[styles.dayButton, selectedDays.includes(day) && styles.dayButtonSelected]}
+                    onPress={() => toggleDay(day)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Selecionar dia ${day}`}
+                  >
+                    <Text style={[styles.dayText, selectedDays.includes(day) && styles.dayTextSelected]}>{day}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-              <DateTimePicker
-                value={classTimeDate}
-                mode="time"
-                display="spinner"
-                is24Hour
-                onChange={handleTimePickerChange}
+            </FormField>
+
+            {selectedDays.length > 0 ? (
+              <View style={styles.dayTimesContainer}>
+                <Text style={styles.dayTimesTitle}>Horários por dia (opcional)</Text>
+                {selectedDays.map((day) => {
+                  const overrideLabel = dayTimes[day];
+                  const displayLabel = overrideLabel || classTimeLabel || 'Selecionar';
+                  return (
+                    <View key={day} style={styles.dayTimeRow}>
+                      <Text style={styles.dayTimeLabel}>{day}</Text>
+                      <TouchableOpacity
+                        style={styles.dayTimeButton}
+                        onPress={() => openDayTimePicker(day)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Definir horário para ${day}`}
+                      >
+                        <Text style={styles.dayTimeButtonText}>{displayLabel}</Text>
+                        <Icon name="clock" size={18} color={COLORS.text} />
+                      </TouchableOpacity>
+                      {overrideLabel ? (
+                        <TouchableOpacity
+                          style={styles.dayTimeReset}
+                          onPress={() =>
+                            setDayTimes((prev) => {
+                              const next = { ...prev };
+                              delete next[day];
+                              return next;
+                            })
+                          }
+                        >
+                          <Icon name="x" size={16} color={COLORS.placeholder} />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            <FormField label="Horário padrão (opcional)" style={styles.fieldLast}>
+              <TouchableOpacity
+                style={[styles.input, styles.timePickerButton]}
+                onPress={openDefaultTimePicker}
+                accessibilityRole="button"
+                accessibilityLabel="Selecionar horário padrão"
+              >
+                <Text style={classTimeLabel ? styles.timePickerValue : styles.timePickerPlaceholder}>
+                  {classTimeLabel || 'Selecionar horário'}
+                </Text>
+              </TouchableOpacity>
+            </FormField>
+
+            {Platform.OS === 'ios' && showTimePicker ? (
+              <View style={styles.iosPickerContainer}>
+                <View style={styles.iosPickerHeader}>
+                  <TouchableOpacity onPress={handleTimePickerCancel}>
+                    <Text style={styles.iosPickerAction}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleTimePickerDone}>
+                    <Text style={[styles.iosPickerAction, styles.iosPickerActionPrimary]}>Concluir</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={classTimeDate}
+                  mode="time"
+                  display="spinner"
+                  is24Hour
+                  onChange={handleTimePickerChange}
+                />
+              </View>
+            ) : null}
+          </Card>
+
+          <Card style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Financeiro</Text>
+            <View style={styles.row}>
+              <FormField label="Valor mensal" style={[styles.field, styles.rowField]}>
+                <TextInput
+                  style={styles.input}
+                  value={monthlyValue}
+                  onChangeText={(text) => {
+                    const digits = onlyDigits(text);
+                    const formatted = formatCurrencyBRFromDigits(digits);
+                    setMonthlyValue(formatted);
+                  }}
+                  keyboardType="numeric"
+                  placeholder="R$ 0,00"
+                  placeholderTextColor={COLORS.placeholder}
+                />
+              </FormField>
+              <FormField label="Data de pagamento" style={[styles.field, styles.rowField]}>
+                <TextInput
+                  style={styles.input}
+                  value={dueDate}
+                  onChangeText={(text) => {
+                    const digits = onlyDigits(text).slice(0, 2);
+                    setDueDate(digits);
+                  }}
+                  keyboardType="numeric"
+                  placeholder="Dia (1-31)"
+                  placeholderTextColor={COLORS.placeholder}
+                />
+              </FormField>
+            </View>
+          </Card>
+
+          <Card style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Notificações</Text>
+            <View style={[styles.switchGroup, styles.field]}>
+              <Text style={styles.switchLabel}>Notificar pagamento</Text>
+              <Switch
+                value={notificationsPaymentOptIn}
+                onValueChange={setNotificationsPaymentOptIn}
+                trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
+                thumbColor={notificationsPaymentOptIn ? COLORS.background : '#f4f3f4'}
               />
             </View>
-          ) : null}
-          <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-            <Text style={styles.label}>Valor Mensal</Text>
-            <TextInput
-              style={styles.input}
-              value={monthlyValue}
-              onChangeText={(text) => {
-                const digits = onlyDigits(text);
-                const formatted = formatCurrencyBRFromDigits(digits);
-                setMonthlyValue(formatted);
-              }}
-              keyboardType="numeric"
-              placeholder="R$ 0,00"
+            <View style={[styles.switchGroup, styles.fieldLast]}>
+              <Text style={styles.switchLabel}>Lembretes de compromissos</Text>
+              <Switch
+                value={notificationsScheduleOptIn}
+                onValueChange={setNotificationsScheduleOptIn}
+                trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
+                thumbColor={notificationsScheduleOptIn ? COLORS.background : '#f4f3f4'}
               />
             </View>
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Data de Pagamento</Text>
-            <TextInput
-              style={styles.input}
-              value={dueDate}
-              onChangeText={(text) => {
-                const digits = onlyDigits(text).slice(0, 2);
-                setDueDate(digits);
-              }}
-              keyboardType="numeric"
-              placeholder="Dia (1-31)"
-              />
-            </View>
-          <View style={[styles.inputGroup, styles.switchGroup]}>
-            <Text style={styles.switchLabel}>Notificar pagamento</Text>
-            <Switch
-              value={notificationsPaymentOptIn}
-              onValueChange={setNotificationsPaymentOptIn}
-              trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
-              thumbColor={notificationsPaymentOptIn ? COLORS.background : '#f4f3f4'}
-            />
-          </View>
-          <View style={[styles.inputGroup, styles.switchGroup]}>
-            <Text style={styles.switchLabel}>Lembretes de compromissos</Text>
-            <Switch
-              value={notificationsScheduleOptIn}
-              onValueChange={setNotificationsScheduleOptIn}
-              trackColor={{ false: 'rgba(26,32,44,0.2)', true: COLORS.primary }}
-              thumbColor={notificationsScheduleOptIn ? COLORS.background : '#f4f3f4'}
-            />
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </Card>
+        </View>
+      </FormScreen>
       {Platform.OS === 'android' && showTimePicker ? (
         <DateTimePicker
           value={classTimeDate}
@@ -610,68 +634,81 @@ const AddClientScreen = ({ navigation, route, defaultClientTerm = 'Cliente' }) =
           onChange={handleTimePickerChange}
         />
       ) : null}
-    </SafeAreaView>
+
+      <SnackbarUndo
+        visible={Boolean(editUndoPayload)}
+        message="Cobrança editada. Deseja desfazer?"
+        onUndo={async () => {
+          if (!editUndoPayload?.clientId || !editUndoPayload?.previousClient) {
+            setEditUndoPayload(null);
+            return;
+          }
+          await Promise.resolve(updateClient(editUndoPayload.clientId, editUndoPayload.previousClient));
+          setEditUndoPayload(null);
+        }}
+        onDismiss={() => {
+          setEditUndoPayload(null);
+          navigation.goBack();
+        }}
+      />
+    </>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+  container: { paddingVertical: 4, gap: 14 },
+  sectionCard: {
+    borderRadius: 18,
+    ...SHADOWS.small,
   },
-  title: { ...TYPOGRAPHY.title, color: COLORS.text },
-  saveButton: { backgroundColor: COLORS.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.textOnPrimary },
-  container: { padding: 20 },
-  keyboardWrapper: { flex: 1 },
-  inputGroup: { marginBottom: 25 },
-  label: { ...TYPOGRAPHY.subtitle, color: COLORS.accent, marginBottom: 8 },
+  sectionTitle: {
+    ...TYPOGRAPHY.subtitle,
+    color: COLORS.text,
+    marginBottom: 14,
+  },
+  field: { marginBottom: 14 },
+  fieldLast: { marginBottom: 0 },
   input: {
-    backgroundColor: COLORS.surface,
-    height: 50,
-    borderRadius: 10,
-    paddingHorizontal: 15,
+    backgroundColor: COLORS.background,
+    minHeight: 50,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     ...TYPOGRAPHY.body,
     color: COLORS.text,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   timePickerButton: { justifyContent: 'center' },
-  timePickerValue: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
-  timePickerPlaceholder: { ...TYPOGRAPHY.subtitle, color: COLORS.placeholder },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  weekdaysContainer: { flexDirection: 'row', justifyContent: 'space-between' },
+  timePickerValue: { ...TYPOGRAPHY.bodyMedium, color: COLORS.text },
+  timePickerPlaceholder: { ...TYPOGRAPHY.body, color: COLORS.placeholder },
+  row: { flexDirection: 'row', gap: 10 },
+  rowField: { flex: 1, minWidth: 120 },
+  weekdaysContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dayButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    minWidth: 44,
+    height: 38,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.background,
     borderWidth: 1,
     borderColor: COLORS.border,
+    paddingHorizontal: 10,
   },
   dayButtonSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  dayText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.text },
+  dayText: { ...TYPOGRAPHY.caption, color: COLORS.text, fontWeight: '700' },
   dayTextSelected: { color: COLORS.textOnPrimary },
   limitNotice: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 20,
+    backgroundColor: 'rgba(43,108,176,0.08)',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: 'rgba(43,108,176,0.22)',
   },
-  limitText: { ...TYPOGRAPHY.body, color: COLORS.accent },
+  limitText: { ...TYPOGRAPHY.body, color: COLORS.text },
   iosPickerContainer: {
     marginTop: 12,
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.background,
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
@@ -683,13 +720,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  iosPickerAction: { ...TYPOGRAPHY.subtitle, color: COLORS.accent },
-  iosPickerActionPrimary: { ...TYPOGRAPHY.subtitle, color: COLORS.text },
+  iosPickerAction: { ...TYPOGRAPHY.bodyMedium, color: COLORS.accent },
+  iosPickerActionPrimary: { ...TYPOGRAPHY.bodyMedium, color: COLORS.text },
   dayTimesContainer: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.background,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
+    padding: 12,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
@@ -701,7 +738,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
@@ -710,7 +747,7 @@ const styles = StyleSheet.create({
   },
   dayTimeButtonText: { ...TYPOGRAPHY.buttonSmall, color: COLORS.text },
   dayTimeReset: { marginLeft: 10, padding: 6, borderRadius: 12, backgroundColor: COLORS.border },
-  switchGroup: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  switchGroup: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   switchLabel: { ...TYPOGRAPHY.subtitle, color: COLORS.accent, marginRight: 12 },
 });
 

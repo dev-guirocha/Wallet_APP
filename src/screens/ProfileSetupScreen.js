@@ -19,7 +19,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useClientStore } from '../store/useClientStore';
 import { auth } from '../utils/firebase';
 import { saveUserProfile } from '../utils/firestoreService';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
+import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme/legacy';
 
 const healthProfessions = [
   'fisioterapeuta',
